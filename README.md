@@ -115,6 +115,12 @@ PORT=4000 ./run.sh
 
 You then review the comments, test the change, and either close it out or add a follow-up task.
 
+A run is normally finalized when the CLI exits. It doesn't always get that far: a background process the
+agent started — a dev server, a poll loop — inherits the output pipe and can hold it open long after the
+agent has said its piece. So the terminal `result` the CLI prints is treated as the outcome, and if no
+exit follows within `AGENT_EXIT_GRACE_MS` the leftovers are killed and the run is closed out on the
+strength of that result rather than left `active` indefinitely.
+
 ## Running several tasks at once
 
 If a project directory is a git repo, each task gets **its own branch and its own checkout** (a
@@ -187,6 +193,7 @@ Environment variables:
 | `VIBE_WRANGLER_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
+| `AGENT_EXIT_GRACE_MS` | `20000` | How long to wait for the CLI to exit after it reports its result |
 
 The agent is invoked as:
 

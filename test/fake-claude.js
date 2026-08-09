@@ -80,4 +80,11 @@ function run() {
   }
   note(`Applied ${edits} change(s).`);
   emit({ type: 'result', result: `Done, ${edits} change(s).` });
+
+  if (prompt.includes('FAKE_LINGER')) {
+    // A background process left holding the stdout pipe, so the runner never sees 'close'.
+    require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'],
+      { stdio: ['ignore', 'inherit', 'inherit'] });
+    setTimeout(() => {}, 60000);
+  }
 }

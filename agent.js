@@ -15,6 +15,9 @@ const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname,
 /** Base moving under us is expected when tasks finish together; give up after this many rounds. */
 const MAX_MERGE_ATTEMPTS = 3;
 
+/** How long the CLI may take to exit after reporting its result before we stop waiting for it. */
+const LINGER_GRACE_MS = Number(process.env.AGENT_EXIT_GRACE_MS) || 20_000;
+
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
 /** taskId -> { child, log, runId, stopping } — agents this instance spawned. */
@@ -173,12 +176,33 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
   running.set(taskId, entry);
 
   let settled = false;
+  let lingerTimer = null;
   const settle = (result) => {
     if (settled) return;
     settled = true;
+    clearTimeout(lingerTimer);
     running.delete(taskId);
     if (record) runs.end(record.id);
     onDone(result);
+  };
+
+  /**
+   * The CLI reports a terminal `result` event and then exits. Anything it left running in the
+   * background inherits the stdout pipe, and while that pipe is open `close` never fires — so a
+   * finished run would otherwise sit `active` forever. The result already tells us the outcome,
+   * so past a grace period we take it, kill the tree and stop waiting for an exit that isn't coming.
+   */
+  const armLingerTimer = (failed) => {
+    clearTimeout(lingerTimer);
+    lingerTimer = setTimeout(() => {
+      log.write(`\n[linger] Agent reported its result but has not exited after ${Math.round(LINGER_GRACE_MS / 1000)}s.`
+        + ' Killing it and its background processes.\n');
+      proc.killTree(child.pid);
+      if (entry.stopping) return settle({ status: 'stopped' });
+      settle(failed
+        ? { status: 'error', message: 'The agent reported a failed run.' }
+        : { status: 'ok', summary: stripDirectives(finalText), sawNote: Boolean(lastNote) });
+    }, LINGER_GRACE_MS);
   };
 
   child.on('error', (err) => {
@@ -219,6 +243,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
         }
       } else if (evt.type === 'result') {
         finalText = typeof evt.result === 'string' ? evt.result : '';
+        armLingerTimer(evt.is_error === true || (evt.subtype && evt.subtype !== 'success'));
       }
     }
   });

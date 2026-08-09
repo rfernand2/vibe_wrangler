@@ -13,6 +13,8 @@ process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
 process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
 process.env.VIBE_WRANGLER_WORKTREES = path.join(tmp, 'worktrees');
 process.env.CLAUDE_BIN = makeFakeCli();
+// Long enough that a normal run always closes first, short enough to keep the suite quick.
+process.env.AGENT_EXIT_GRACE_MS = '1500';
 
 const { projects, tasks, comments } = require('../db');
 const agent = require('../agent');
@@ -207,6 +209,22 @@ async function main() {
 
   assert.equal(read(repo, 'a.txt'), 'base\nfrom A\nfrom H\n');
   ok('the retry still merges its own change back');
+
+  // --- an agent that reports its result but leaves a process holding the pipe must not hang ---
+  const t9 = tasks.create({
+    project_id: p1.id,
+    title: 'Task I',
+    description: 'FAKE_APPEND a.txt|from I\nFAKE_LINGER',
+  });
+  agent.runTask(t9.id);
+  await settle([t9.id]);
+
+  assert.equal(tasks.get(t9.id).status, 'completed');
+  ok('a finished run is not held open by a lingering background process');
+
+  assert.equal(read(repo, 'a.txt'), 'base\nfrom A\nfrom H\nfrom I\n');
+  assert.equal(run(repo, 'status', '--porcelain'), '');
+  ok('the lingering run still merges its work back');
 
   console.log(`\n${passed} checks passed`);
 }
