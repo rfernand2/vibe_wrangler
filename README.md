@@ -16,6 +16,10 @@ Projects  ──▶  Tasks  ──▶  Comments
 
 - **Projects** — create / edit / delete. Each project points at a working directory on disk (that's where the agent runs).
 - **Tasks** — create / edit / delete, grouped and filterable by status.
+- **Tags** — label tasks with anything you like (`bug`, `backend`, `v2`). Tags are normalized (trimmed,
+  lower-cased, de-duplicated) so `Backend` and `backend ` are the same tag.
+- **All tasks view** — one board showing every task across every project, filterable by tag *and* status.
+  Useful for "show me everything tagged `release` no matter which repo it lives in".
 - **Statuses**
   - `ready` — queued for the agent to pick up
   - `active` — the agent is working on it right now
@@ -80,12 +84,17 @@ Environment variables:
 | `LLM_TASKS_DB` | `./data/llm_tasks.db` | SQLite database file |
 | `LLM_TASKS_LOGS` | `./data/logs` | Directory for raw agent transcripts |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
-| `AGENT_PERMISSION_MODE` | `acceptEdits` | Passed to `claude --permission-mode`. Use `bypassPermissions` to let the agent run shell commands unattended. |
+| `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
 
-> **Note on permissions:** in the default `acceptEdits` mode the agent may edit files but tool calls that need
-> explicit approval are denied automatically (it can't prompt you — there's no terminal attached). If you want
-> the agent to run builds and tests on its own, set `AGENT_PERMISSION_MODE=bypassPermissions`, and only point
-> projects at directories you trust it in.
+The agent is invoked as:
+
+```
+claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <AGENT_MODEL>
+```
+
+> **Note on permissions:** the agent runs with `--dangerously-skip-permissions` so it can edit files, run
+> builds, and run tests without a human at the keyboard — there is no terminal attached to approve prompts.
+> Only point projects at directories you're willing to let it change.
 
 ## Project layout
 
@@ -117,7 +126,9 @@ It never invokes the real Claude CLI, so it's fast and free.
 | `POST` | `/api/projects` | Create a project |
 | `PUT` | `/api/projects/:id` | Update a project |
 | `DELETE` | `/api/projects/:id` | Delete a project and its tasks |
-| `GET` | `/api/projects/:id/tasks?status=` | List tasks, optionally filtered |
+| `GET` | `/api/projects/:id/tasks?status=&tag=` | List a project's tasks, optionally filtered |
+| `GET` | `/api/tasks?status=&tag=` | List tasks across every project |
+| `GET` | `/api/tags` | Every tag in use, with task counts |
 | `POST` | `/api/projects/:id/tasks` | Create a task |
 | `GET` | `/api/tasks/:id` | Task detail with comments |
 | `PUT` | `/api/tasks/:id` | Update a task |

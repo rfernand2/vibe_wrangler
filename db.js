@@ -42,9 +42,16 @@ db.exec(`
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS task_tags (
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    tag     TEXT NOT NULL,
+    PRIMARY KEY (task_id, tag)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag);
 `);
 
 const q = (sql) => db.prepare(sql);
@@ -87,36 +94,70 @@ const projects = {
   },
 };
 
+/** Accepts an array or a comma-separated string; returns a sorted, de-duplicated list. */
+function normalizeTags(input) {
+  const parts = Array.isArray(input) ? input : String(input ?? '').split(',');
+  const set = new Set();
+  for (const part of parts) {
+    // Commas are the separator and would corrupt the group_concat round-trip.
+    const tag = String(part).replace(/,/g, ' ').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (tag) set.add(tag);
+  }
+  return [...set].sort();
+}
+
+const TAGS_COLUMN = `(SELECT group_concat(tag) FROM task_tags tt WHERE tt.task_id = t.id) AS tag_list`;
+
+function hydrate(row) {
+  if (!row) return row;
+  const { tag_list, ...rest } = row;
+  return { ...rest, tags: tag_list ? tag_list.split(',').sort() : [] };
+}
+
 const tasks = {
-  list({ projectId = null, status = null } = {}) {
+  list({ projectId = null, status = null, tag = null } = {}) {
     const where = [];
     const args = [];
     if (projectId != null) { where.push('t.project_id = ?'); args.push(projectId); }
     if (status) { where.push('t.status = ?'); args.push(status); }
+    if (tag) {
+      where.push('EXISTS (SELECT 1 FROM task_tags tt WHERE tt.task_id = t.id AND tt.tag = ?)');
+      args.push(normalizeTags(tag)[0] ?? tag);
+    }
     const sql = `
       SELECT t.*, p.name AS project_name, p.directory AS project_directory,
-             (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id) AS comment_count
+             (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id) AS comment_count,
+             ${TAGS_COLUMN}
       FROM tasks t
       JOIN projects p ON p.id = t.project_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
       ORDER BY t.updated_at DESC, t.id DESC
     `;
-    return q(sql).all(...args);
+    return q(sql).all(...args).map(hydrate);
   },
   get(id) {
-    return q(`
-      SELECT t.*, p.name AS project_name, p.directory AS project_directory
+    return hydrate(q(`
+      SELECT t.*, p.name AS project_name, p.directory AS project_directory, ${TAGS_COLUMN}
       FROM tasks t JOIN projects p ON p.id = t.project_id
       WHERE t.id = ?
-    `).get(id);
+    `).get(id));
   },
-  create({ project_id, title, description = '', status = 'ready' }) {
+  setTags(id, input) {
+    const list = normalizeTags(input);
+    q('DELETE FROM task_tags WHERE task_id = ?').run(id);
+    const insert = q('INSERT INTO task_tags (task_id, tag) VALUES (?, ?)');
+    for (const tag of list) insert.run(id, tag);
+    return list;
+  },
+  create({ project_id, title, description = '', status = 'ready', tags = [] }) {
     const { lastInsertRowid } = q(
       'INSERT INTO tasks (project_id, title, description, status) VALUES (?, ?, ?, ?)'
     ).run(project_id, title, description, status);
-    return tasks.get(Number(lastInsertRowid));
+    const id = Number(lastInsertRowid);
+    tasks.setTags(id, tags);
+    return tasks.get(id);
   },
-  update(id, { title, description, status }) {
+  update(id, { title, description, status, tags }) {
     const cur = tasks.get(id);
     if (!cur) return null;
     q(`UPDATE tasks SET title = ?, description = ?, status = ?, updated_at = datetime('now')
@@ -126,6 +167,7 @@ const tasks = {
       status ?? cur.status,
       id
     );
+    if (tags !== undefined) tasks.setTags(id, tags);
     return tasks.get(id);
   },
   setStatus(id, status) {
@@ -157,6 +199,15 @@ const comments = {
 
 const BUILTIN_STATUSES = ['ready', 'active', 'completed'];
 
+function allTags() {
+  return q(`
+    SELECT tt.tag, COUNT(*) AS count
+    FROM task_tags tt
+    GROUP BY tt.tag
+    ORDER BY tt.tag
+  `).all();
+}
+
 function allStatuses() {
   const custom = q('SELECT DISTINCT status FROM tasks ORDER BY status').all()
     .map((r) => r.status)
@@ -164,4 +215,4 @@ function allStatuses() {
   return { builtin: BUILTIN_STATUSES, custom };
 }
 
-module.exports = { db, projects, tasks, comments, allStatuses, BUILTIN_STATUSES, DB_PATH };
+module.exports = { db, projects, tasks, comments, allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, DB_PATH };

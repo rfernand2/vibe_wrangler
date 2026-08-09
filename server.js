@@ -3,7 +3,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { projects, tasks, comments, allStatuses } = require('./db');
+const { projects, tasks, comments, allStatuses, allTags } = require('./db');
 const agent = require('./agent');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -65,9 +65,12 @@ async function api(req, res, url) {
   // /api/statuses
   if (a === 'statuses' && method === 'GET') return json(res, 200, allStatuses());
 
+  // /api/tags
+  if (a === 'tags' && method === 'GET') return json(res, 200, allTags());
+
   // /api/config
   if (a === 'config' && method === 'GET') {
-    return json(res, 200, { permissionMode: agent.PERMISSION_MODE, claudeBin: agent.CLAUDE_BIN });
+    return json(res, 200, { model: agent.MODEL, claudeBin: agent.CLAUDE_BIN });
   }
 
   // /api/projects...
@@ -102,7 +105,11 @@ async function api(req, res, url) {
 
       if (c === 'tasks') {
         if (method === 'GET') {
-          return json(res, 200, tasks.list({ projectId: id, status: url.searchParams.get('status') || null }));
+          return json(res, 200, tasks.list({
+            projectId: id,
+            status: url.searchParams.get('status') || null,
+            tag: url.searchParams.get('tag') || null,
+          }));
         }
         if (method === 'POST') {
           if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
@@ -112,6 +119,7 @@ async function api(req, res, url) {
             title: body.title.trim(),
             description: body.description || '',
             status: (body.status || 'ready').trim() || 'ready',
+            tags: body.tags ?? [],
           }));
         }
       }
@@ -126,7 +134,10 @@ async function api(req, res, url) {
   // /api/tasks...
   if (a === 'tasks') {
     if (!b && method === 'GET') {
-      return json(res, 200, tasks.list({ status: url.searchParams.get('status') || null }));
+      return json(res, 200, tasks.list({
+        status: url.searchParams.get('status') || null,
+        tag: url.searchParams.get('tag') || null,
+      }));
     }
     const id = Number(b);
     if (!Number.isInteger(id)) return json(res, 400, { error: 'Invalid task id' });
@@ -200,8 +211,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  const recovered = agent.recoverStaleTasks();
+  if (recovered) console.log(`reset ${recovered} task(s) left active by a previous run`);
   console.log(`llm_tasks running at http://localhost:${PORT}`);
-  console.log(`agent: ${agent.CLAUDE_BIN} (permission mode: ${agent.PERMISSION_MODE})`);
+  console.log(`agent: ${agent.CLAUDE_BIN} --model ${agent.MODEL} --dangerously-skip-permissions`);
 });
 
 module.exports = server;

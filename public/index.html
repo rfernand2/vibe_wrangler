@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>llm_tasks</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9635;</text></svg>">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -17,6 +18,10 @@
 
 <main class="layout">
   <aside class="sidebar">
+    <button class="all-tasks-btn" id="allTasksBtn">
+      <span class="pname">All tasks</span>
+      <span class="pcount" id="allTasksCount"></span>
+    </button>
     <div class="sidebar-head">
       <h2>Projects</h2>
       <button class="btn btn-primary btn-sm" id="newProjectBtn">New</button>
@@ -47,6 +52,11 @@
         <span class="spacer"></span>
         <button class="btn" id="runReadyBtn">Run all ready</button>
         <button class="btn btn-primary" id="newTaskBtn">New task</button>
+      </div>
+
+      <div class="toolbar tag-toolbar" id="tagToolbar">
+        <span class="filter-label">Tags</span>
+        <div class="filters" id="tagFilters"></div>
       </div>
 
       <ul class="task-list" id="taskList"></ul>
@@ -95,6 +105,11 @@
       <datalist id="statusOptions"></datalist>
       <small class="muted">Only <code>ready</code> tasks are picked up by the agent. Any other value parks the task.</small>
     </label>
+    <label>Tags
+      <input name="tags" list="tagOptions" autocomplete="off" placeholder="backend, bug, v2">
+      <datalist id="tagOptions"></datalist>
+      <small class="muted">Comma separated. Tags let you view related tasks across every project.</small>
+    </label>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="taskDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
@@ -114,6 +129,7 @@
   </div>
   <div class="drawer-body">
     <p class="muted" id="detailMeta"></p>
+    <div class="tag-row" id="detailTags"></div>
     <pre class="task-desc" id="detailDesc"></pre>
 
     <div class="row-actions drawer-actions">

@@ -101,6 +101,21 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .sidebar-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 
+.all-tasks-btn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.all-tasks-btn:hover { background: var(--panel-2); }
+.all-tasks-btn.selected { background: var(--panel-2); border-color: var(--accent); }
+
 .project-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .project-list button {
   width: 100%;
@@ -115,8 +130,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 }
 .project-list button:hover { background: var(--panel-2); }
 .project-list button.selected { background: var(--panel-2); border-color: var(--accent); }
-.project-list .pname { display: block; font-weight: 600; }
-.project-list .pcount { font-size: 12px; color: var(--muted); }
+.pname { display: block; font-weight: 600; }
+.pcount { display: block; font-size: 12px; color: var(--muted); }
 
 .content { flex: 1; padding: 18px 22px; min-width: 0; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }
@@ -127,8 +142,26 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .toolbar { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; flex-wrap: wrap; }
+.tag-toolbar { margin: 0 0 14px; }
+.filter-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .filters button.active { border-color: var(--accent); background: #22314d; }
+
+/* Tags */
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid #35507d;
+  background: #1b2740;
+  color: #a8c4f0;
+  white-space: nowrap;
+}
+.tag-row { display: flex; gap: 5px; flex-wrap: wrap; margin: 8px 0 0; }
+.tag-row:empty { display: none; }
+.task-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.project-tag { color: var(--muted); font-size: 12px; }
 
 /* ---------- Tasks ---------- */
 .task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

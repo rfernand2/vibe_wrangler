@@ -69,13 +69,14 @@ async function main() {
   ok('rejects a task with no title');
 
   const t1 = (await call('POST', `/api/projects/${proj.id}/tasks`, {
-    title: 'First task', description: 'do the thing',
+    title: 'First task', description: 'do the thing', tags: ' Backend , bug ,backend,',
   })).body;
   assert.equal(t1.status, 'ready', 'defaults to ready');
-  ok('creates a task defaulting to ready');
+  assert.deepEqual(t1.tags, ['backend', 'bug'], 'tags are normalized and de-duplicated');
+  ok('creates a task defaulting to ready, with normalized tags');
 
   const t2 = (await call('POST', `/api/projects/${proj.id}/tasks`, {
-    title: 'Parked task', status: 'blocked',
+    title: 'Parked task', status: 'blocked', tags: ['bug'],
   })).body;
   ok('creates a task with a user-defined status');
 
@@ -93,6 +94,58 @@ async function main() {
   assert.deepEqual(statuses.builtin, ['ready', 'active', 'completed']);
   assert.deepEqual(statuses.custom, ['blocked']);
   ok('reports user-defined statuses');
+
+  // --- tags across projects ---
+  const other = (await call('POST', '/api/projects', { name: 'Other', directory: workdir })).body;
+  const t3 = (await call('POST', `/api/projects/${other.id}/tasks`, {
+    title: 'Task in another project', tags: 'bug, ui',
+  })).body;
+  ok('creates a tagged task in a second project');
+
+  const tags = (await call('GET', '/api/tags')).body;
+  assert.deepEqual(tags, [
+    { tag: 'backend', count: 1 },
+    { tag: 'bug', count: 3 },
+    { tag: 'ui', count: 1 },
+  ]);
+  ok('lists every tag with its usage count');
+
+  const allTasks = (await call('GET', '/api/tasks')).body;
+  assert.equal(allTasks.length, 3);
+  assert.ok(allTasks.every((t) => t.project_name), 'each task names its project');
+  ok('lists tasks across all projects');
+
+  const bugTasks = (await call('GET', '/api/tasks?tag=bug')).body;
+  assert.deepEqual(bugTasks.map((t) => t.id).sort(), [t1.id, t2.id, t3.id].sort());
+  ok('filters tasks by tag across all projects');
+
+  const uiTasks = (await call('GET', '/api/tasks?tag=UI')).body;
+  assert.deepEqual(uiTasks.map((t) => t.id), [t3.id], 'tag lookup is case-insensitive');
+  ok('tag filtering ignores case');
+
+  const readyBugs = (await call('GET', '/api/tasks?tag=bug&status=ready')).body;
+  assert.deepEqual(readyBugs.map((t) => t.id).sort(), [t1.id, t3.id].sort());
+  ok('combines tag and status filters');
+
+  const scoped = (await call('GET', `/api/projects/${proj.id}/tasks?tag=bug`)).body;
+  assert.equal(scoped.length, 2, 'tag filter also works inside a project');
+  ok('filters by tag within a single project');
+
+  const retagged = (await call('PUT', `/api/tasks/${t1.id}`, { tags: 'backend' })).body;
+  assert.deepEqual(retagged.tags, ['backend']);
+  assert.equal((await call('GET', '/api/tags')).body.find((x) => x.tag === 'bug').count, 2);
+  ok('replaces tags on update');
+
+  assert.deepEqual((await call('PUT', `/api/tasks/${t1.id}`, { title: 'First task' })).body.tags,
+    ['backend'], 'omitting tags leaves them alone');
+  ok('an update without tags preserves them');
+
+  await call('DELETE', `/api/tasks/${t3.id}`);
+  assert.ok(!(await call('GET', '/api/tags')).body.some((x) => x.tag === 'ui'),
+    'tags disappear with their task');
+  ok('deleting a task clears its tags');
+
+  await call('DELETE', `/api/projects/${other.id}`);
 
   // --- comments ---
   await call('POST', `/api/tasks/${t1.id}/comments`, { body: 'looks good to me' });
@@ -138,6 +191,15 @@ async function main() {
   const startedResp = (await call('POST', `/api/projects/${proj.id}/run-ready`)).body;
   assert.deepEqual(startedResp.started, [t1.id], 'skips the blocked task');
   ok('run-ready ignores user-defined statuses');
+
+  // --- a task left active by a killed server is recovered on the next start ---
+  const stale = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Interrupted' })).body;
+  await call('PUT', `/api/tasks/${stale.id}`, { status: 'active' });
+  require('../agent').recoverStaleTasks();
+  const recovered = (await call('GET', `/api/tasks/${stale.id}`)).body;
+  assert.equal(recovered.status, 'ready');
+  assert.match(recovered.comments.at(-1).body, /restarted/i);
+  ok('resets tasks left active by a previous run');
 
   // --- deletes cascade ---
   assert.equal((await call('DELETE', `/api/tasks/${t2.id}`)).status, 200);

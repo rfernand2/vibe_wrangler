@@ -6,7 +6,7 @@ const path = require('node:path');
 const { tasks, comments, projects } = require('./db');
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
-const PERMISSION_MODE = process.env.AGENT_PERMISSION_MODE || 'acceptEdits';
+const MODEL = process.env.AGENT_MODEL || 'claude-opus-5';
 const LOG_DIR = process.env.LLM_TASKS_LOGS || path.join(__dirname, 'data', 'logs');
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -16,6 +16,20 @@ const running = new Map();
 
 function isRunning(taskId) {
   return running.has(Number(taskId));
+}
+
+/** A task left 'active' by a crashed or restarted server has no process behind it any more. */
+function recoverStaleTasks() {
+  const stale = tasks.list({ status: 'active' });
+  for (const t of stale) {
+    comments.create({
+      task_id: t.id,
+      author: 'system',
+      body: 'The app restarted while this task was running, so the agent was interrupted. Set back to ready.',
+    });
+    tasks.setStatus(t.id, 'ready');
+  }
+  return stale.length;
 }
 
 function buildPrompt(task, project, history) {
@@ -105,7 +119,8 @@ function runTask(taskId) {
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
-    '--permission-mode', PERMISSION_MODE,
+    '--dangerously-skip-permissions',
+    '--model', MODEL,
   ];
 
   const child = spawn(CLAUDE_BIN, args, {
@@ -218,4 +233,4 @@ function readLog(taskId) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
 }
 
-module.exports = { runTask, stopTask, runReady, isRunning, readLog, PERMISSION_MODE, CLAUDE_BIN };
+module.exports = { runTask, stopTask, runReady, isRunning, readLog, recoverStaleTasks, MODEL, CLAUDE_BIN };
