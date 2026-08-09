@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning server.js",
-    "test": "node --no-warnings=ExperimentalWarning test/smoke.js"
+    "test": "node --no-warnings=ExperimentalWarning test/smoke.js && node --no-warnings=ExperimentalWarning test/worktree.js"
   },
   "engines": {
     "node": ">=22"

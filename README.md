@@ -74,6 +74,35 @@ node server.js
 
 You then review the comments, test the change, and either close it out or add a follow-up task.
 
+## Running several tasks at once
+
+If a project directory is a git repo, each task gets **its own branch and its own checkout** (a
+`git worktree`), so two agents can work the same repo simultaneously without tripping over each other.
+Your own working copy is never touched while they run.
+
+```
+main ──┬── llm-task/12   (worktree: data/worktrees/p1-task-12)
+       └── llm-task/13   (worktree: data/worktrees/p1-task-13)
+```
+
+When a task finishes, the app:
+
+1. Commits everything in that task's worktree.
+2. Merges the current base branch **into the task branch**, inside the worktree — so if two tasks
+   changed the same lines, the conflict happens somewhere harmless.
+3. On conflict, hands it straight back to the agent: *resolve this, keep both changes, run the tests.*
+   There is no approval prompt — the agent is trusted to merge and verify.
+4. Fast-forwards your branch onto the result. A fast-forward is the only merge your working copy ever
+   sees, so it can't leave you with a conflicted tree, and git refuses outright rather than clobbering
+   uncommitted work.
+5. Deletes the worktree and the task branch.
+
+If any of that fails, the task is marked `failed` and a comment tells you which `llm-task/<id>` branch
+still holds the work — nothing is ever thrown away.
+
+Projects that **aren't** git repos have nowhere to isolate to, so their tasks are queued and run one at
+a time instead.
+
 ## Configuration
 
 Environment variables:
@@ -83,6 +112,7 @@ Environment variables:
 | `PORT` | `3000` | HTTP port |
 | `LLM_TASKS_DB` | `./data/llm_tasks.db` | SQLite database file |
 | `LLM_TASKS_LOGS` | `./data/logs` | Directory for raw agent transcripts |
+| `LLM_TASKS_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
 
@@ -102,9 +132,11 @@ claude -p --output-format stream-json --verbose --dangerously-skip-permissions -
 server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
 agent.js           Spawns the Claude CLI, parses its output into comments
+git.js             Worktree / branch / merge plumbing for concurrent tasks
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database
-data/              SQLite database + raw agent logs (git-ignored)
+test/worktree.js   Two-agents-one-repo concurrency and merge-conflict test
+data/              SQLite database, raw agent logs, task worktrees (git-ignored)
 run.bat            Start the app on Windows
 ```
 
@@ -114,9 +146,14 @@ run.bat            Start the app on Windows
 npm test
 ```
 
-Spins the server up on a spare port against a temporary database and exercises the whole API — CRUD,
-status filtering, cascade deletes, and the agent's failure paths (missing project directory, missing CLI).
-It never invokes the real Claude CLI, so it's fast and free.
+Two suites, neither of which invokes the real Claude CLI — both are fast and free.
+
+- `test/smoke.js` spins the server up on a spare port against a temporary database and exercises the
+  whole API: CRUD, tags, status filtering, cascade deletes, and the agent's failure paths.
+- `test/worktree.js` builds throwaway git repos and runs two agents on one repo at the same time,
+  using a scripted stand-in for the CLI. It checks that both changes land, that a genuine merge
+  conflict is resolved without losing either side, that non-git projects fall back to a queue, and
+  that a failed run leaves your checkout clean.
 
 ## API
 
