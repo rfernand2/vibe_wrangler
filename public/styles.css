@@ -184,10 +184,10 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .task-item:hover { border-color: #3a4150; background: var(--panel-2); }
 
 /* Inherits the shared icon-button hit target, so the whole square is visibly clickable at rest. */
-.disclosure { flex: 0 0 auto; width: 22px; height: 22px; font-size: 14px; color: var(--muted); }
+.disclosure { flex: 0 0 auto; color: var(--muted); }
 .disclosure:hover { color: var(--text); }
 /* Keeps rows without a checklist aligned with rows that have one. */
-.disclosure-gap { flex: 0 0 auto; width: 22px; }
+.disclosure-gap { flex: 0 0 auto; width: 30px; }
 .task-main { flex: 1; min-width: 0; }
 .task-title { font-weight: 600; }
 .task-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
