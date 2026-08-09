@@ -239,6 +239,35 @@ async function main() {
   assert.ok(!proc.isAlive(sleeper.pid), 'the inherited agent was killed');
   ok('terminates an inherited agent');
 
+  // --- the change stream is what keeps the browser current now that Refresh is gone ---
+  const stream = await fetch(`${base}/api/events`);
+  assert.match(stream.headers.get('content-type'), /text\/event-stream/);
+  const reader = stream.body.getReader();
+  const frame = async () => {
+    const started = Date.now();
+    let buf = '';
+    while (Date.now() - started < 5000) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += Buffer.from(value).toString('utf8');
+      const m = /^data: (.+)$/m.exec(buf);
+      if (m) return JSON.parse(m[1]);
+    }
+    return null;
+  };
+
+  const greeting = await frame();
+  assert.ok(greeting && typeof greeting.rev === 'number', 'a new connection is greeted immediately');
+  ok('the event stream greets every connection so a reconnect resyncs itself');
+
+  const nudge = call('POST', `/api/projects/${retryProj.id}/tasks`, { title: 'Pushed live' });
+  const pushed = await frame();
+  await nudge;
+  assert.ok(pushed && pushed.rev > greeting.rev, 'the write bumped the revision');
+  ok('a write is pushed to connected clients');
+
+  await reader.cancel();
+
   // --- deletes cascade ---
   assert.equal((await call('DELETE', `/api/tasks/${t2.id}`)).status, 200);
   assert.equal((await call('GET', `/api/tasks/${t2.id}`)).status, 404);

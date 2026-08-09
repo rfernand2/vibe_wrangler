@@ -4,6 +4,8 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const events = require('./events');
+
 const DB_PATH = process.env.LLM_TASKS_DB || path.join(__dirname, 'data', 'llm_tasks.db');
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -88,7 +90,21 @@ function addColumn(table, name, decl) {
 addColumn('tasks', 'started_at', 'TEXT');
 addColumn('tasks', 'finished_at', 'TEXT');
 
-const q = (sql) => db.prepare(sql);
+/**
+ * Every write in this file lands through a prepared statement's run(), so hooking it here is the one
+ * place that cannot be forgotten. Notifying from each caller instead would mean a new query could
+ * quietly stop waking the browser, and there is no Refresh button to fall back on.
+ */
+const q = (sql) => {
+  const stmt = db.prepare(sql);
+  const run = stmt.run.bind(stmt);
+  stmt.run = (...args) => {
+    const result = run(...args);
+    if (result.changes) events.changed();
+    return result;
+  };
+  return stmt;
+};
 
 const projects = {
   list() {

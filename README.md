@@ -28,8 +28,9 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Comments** — an append-only conversation per task. The agent writes progress notes while it works and a
   summary when it finishes. You can add your own comments too (review notes, test results, follow-ups).
 - **Checklists** — the agent breaks each task into sub-tasks up front and ticks them off as it goes, so you
-  can see how far through it is rather than just "active". Shown on the task detail, and optionally inline
-  on the task list via the **Show checklists** toggle.
+  can see how far through it is rather than just "active". A task's checklist opens itself on the board
+  while the agent is working and folds away once it stops; the triangle beside any task overrides that
+  either way. Starting a new run reveals the fresh checklist again.
 - **Run timer** — a live elapsed clock while a task is active, and the final duration once it finishes.
 - **Raw logs** — the full technical transcript of each agent run is saved to disk and linked from the task,
   so it's there when you need it and out of the way when you don't.
@@ -38,6 +39,8 @@ Projects  ──▶  Tasks  ──▶  Comments
   branch holding the earlier attempt's work is never deleted out from under you.
 - **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
   This includes agents inherited from an earlier run of the app, not just ones this instance started.
+- **Live** — the board updates itself. There is no Refresh button because there is nothing to refresh:
+  the server pushes a notification whenever anything changes and every open tab refetches.
 - **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
 
 ## Why the Claude CLI (not the API)
@@ -139,6 +142,20 @@ goes back to `ready`. Pids get recycled, so a recorded pid is only adopted when 
 still has the executable name we started — otherwise the app would happily adopt, and later kill, a
 stranger's process.
 
+## Staying current
+
+`GET /api/events` is a server-sent event stream. Whenever a row changes, the server pushes a frame
+saying only *something moved* — never what — and the browser refetches what it has on screen. Because
+the payload is meaningless, a duplicated, reordered or dropped frame cannot corrupt anything, which is
+what keeps this to one small file with no dependencies.
+
+The notification is fired from a single place: a wrapper around the prepared-statement `run()` in
+`db.js`. Every write in the app goes through it, so a new query cannot quietly forget to notify.
+
+The server also greets each new connection with a frame before sending any real ones. `EventSource`
+reconnects on its own, and that greeting makes it resync — so a dropped stream needs no reasoning
+about what was missed while it was down.
+
 ## Configuration
 
 Environment variables:
@@ -170,6 +187,7 @@ db.js              SQLite schema and queries
 agent.js           Spawns the Claude CLI, parses its output into comments
 git.js             Worktree / branch / merge plumbing for concurrent tasks
 proc.js            Liveness, identity and tree-kill for agent processes
+events.js          Server-sent change notifications that keep open tabs current
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database
 test/worktree.js   Two-agents-one-repo concurrency and merge-conflict test
@@ -217,6 +235,7 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
 | `GET` | `/api/statuses` | Known status values (built-in + user-defined) |
+| `GET` | `/api/events` | Change notification stream (server-sent events) |
 
 ## License
 

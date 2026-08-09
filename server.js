@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { projects, tasks, comments, allStatuses, allTags } = require('./db');
 const agent = require('./agent');
+const events = require('./events');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -61,6 +62,9 @@ async function api(req, res, url) {
   const [, a, b, c] = seg;
   const method = req.method;
   const body = method === 'POST' || method === 'PUT' ? await readBody(req) : {};
+
+  // /api/events — the open stream that keeps every tab current
+  if (a === 'events' && method === 'GET') return events.subscribe(req, res);
 
   // /api/statuses
   if (a === 'statuses' && method === 'GET') return json(res, 200, allStatuses());

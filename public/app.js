@@ -12,10 +12,19 @@ const state = {
   tags: [],
   task: null,
   statuses: { builtin: ['ready', 'active', 'completed'], custom: [] },
-  showChecklists: localStorage.getItem('showChecklists') === '1',
+  checklistOpen: new Map(),
 };
 
-let poll = null;
+/**
+ * Checklists open themselves while a task is active and stay shut otherwise, until the user says
+ * otherwise. The choice is remembered against the run it was made for, so starting a fresh run
+ * reveals its new checklist instead of honouring a decision about the previous one.
+ */
+function checklistOpen(t) {
+  const choice = state.checklistOpen.get(t.id);
+  if (choice && choice.run === (t.started_at || '')) return choice.open;
+  return t.status === 'active';
+}
 
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -284,6 +293,24 @@ function renderTasks() {
     li.className = 'task-item';
     li.onclick = () => openTask(t.id);
 
+    const open = t.checklist.length && checklistOpen(t);
+    let gizmo;
+    if (t.checklist.length) {
+      gizmo = document.createElement('button');
+      gizmo.className = 'icon-btn disclosure';
+      gizmo.textContent = open ? '\u25be' : '\u25b8';
+      gizmo.title = open ? 'Hide checklist' : 'Show checklist';
+      gizmo.setAttribute('aria-expanded', String(open));
+      gizmo.onclick = (e) => {
+        e.stopPropagation(); // the row itself opens the task
+        state.checklistOpen.set(t.id, { run: t.started_at || '', open: !open });
+        renderTasks();
+      };
+    } else {
+      gizmo = document.createElement('span');
+      gizmo.className = 'disclosure-gap';
+    }
+
     const pill = document.createElement('span');
     pill.className = `pill ${statusClass(t.status)}`;
     pill.textContent = t.status;
@@ -309,7 +336,7 @@ function renderTasks() {
     }
     main.append(title, sub);
 
-    if (state.showChecklists && t.checklist.length) main.append(checklistEl(t.checklist, true));
+    if (open) main.append(checklistEl(t.checklist, true));
 
     if (t.tags.length) {
       const tagRow = document.createElement('div');
@@ -323,7 +350,7 @@ function renderTasks() {
       main.append(tagRow);
     }
 
-    li.append(pill, main);
+    li.append(gizmo, pill, main);
     list.append(li);
   }
 }
@@ -335,14 +362,12 @@ const openTask = run(async (id) => {
   renderTask();
   $('drawer').hidden = false;
   $('drawerScrim').hidden = false;
-  startPolling();
 });
 
 function closeDrawer() {
   $('drawer').hidden = true;
   $('drawerScrim').hidden = true;
   state.task = null;
-  stopPolling();
 }
 
 function renderTask() {
@@ -426,19 +451,30 @@ async function refreshTask() {
   renderTask();
 }
 
-function startPolling() {
-  stopPolling();
-  poll = setInterval(async () => {
-    try {
-      if (state.task) await refreshTask();
-      const active = state.tasks.some((t) => t.status === 'active') || state.task?.status === 'active';
-      if (active) { await loadProjects(); await loadTasks(); }
-    } catch { /* transient */ }
-  }, 2500);
+let syncing = false;
+
+/** Refetches whatever is on screen. Every server notification lands here. */
+async function syncAll() {
+  if (syncing) return;
+  syncing = true;
+  try {
+    await loadProjects();
+    await loadTasks();
+    if (state.task) await refreshTask();
+  } catch { /* the stream will tell us again */ } finally {
+    syncing = false;
+  }
 }
-function stopPolling() {
-  if (poll) clearInterval(poll);
-  poll = null;
+
+/**
+ * The server greets every connection with a frame before it sends any real ones, so reconnecting
+ * after a dropped stream resyncs on its own — we never have to reason about what we missed.
+ */
+function connectEvents() {
+  new EventSource('/api/events').onmessage = syncAll;
+  // There is no Refresh button any more, so this is the only way back from a notification that
+  // never arrived — from a write made outside this server, say.
+  setInterval(syncAll, 30000);
 }
 
 /* ---------- Dialogs ---------- */
@@ -451,15 +487,6 @@ document.addEventListener('click', (e) => {
 });
 
 $('allTasksBtn').onclick = selectAllTasks;
-
-function renderChecklistToggle() {
-  $('checklistToggle').checked = state.showChecklists;
-}
-$('checklistToggle').onchange = (e) => {
-  state.showChecklists = e.target.checked;
-  localStorage.setItem('showChecklists', state.showChecklists ? '1' : '0');
-  renderTasks();
-};
 
 let editingProject = null;
 $('newProjectBtn').onclick = () => {
@@ -572,17 +599,11 @@ $('detailLogBtn').onclick = run(async () => {
 
 $('runReadyBtn').onclick = run(async () => {
   const { started } = await api('POST', `/api/projects/${state.projectId}/run-ready`);
-  await loadProjects();
-  await loadTasks();
-  startPolling();
   toast(started.length ? `Started ${started.length} task(s)` : 'No ready tasks');
 });
 
 $('runFailedBtn').onclick = run(async () => {
   const { started } = await api('POST', `/api/projects/${state.projectId}/run-failed`);
-  await loadProjects();
-  await loadTasks();
-  startPolling();
   toast(started.length ? `Retrying ${started.length} task(s)` : 'No failed tasks');
 });
 
@@ -652,20 +673,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('drawer').hidden) closeDrawer();
 });
 
-$('refreshBtn').onclick = run(async () => {
-  await loadProjects();
-  await loadTasks();
-  if (state.task) await refreshTask();
-});
-
 /* ---------- Boot ---------- */
 
 run(async () => {
   const cfg = await api('GET', '/api/config');
   $('agentInfo').textContent = `agent: ${cfg.claudeBin} · ${cfg.model}`;
-  renderChecklistToggle();
   await loadProjects();
   await loadTasks();
-  startPolling();
+  connectEvents();
   setInterval(tickElapsed, 1000);
 })();
