@@ -6,6 +6,7 @@ const path = require('node:path');
 const { tasks, comments, projects, checklist, runs } = require('./db');
 const git = require('./git');
 const proc = require('./proc');
+const attachments = require('./attachments');
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const MODEL = process.env.AGENT_MODEL || 'claude-opus-5';
@@ -78,10 +79,13 @@ function buildPrompt(task, project, history, iso) {
   }
 
   lines.push('', '## Task', `Title: ${task.title}`);
-  if (task.description) lines.push('', task.description);
-  if (history.length) {
-    lines.push('', '## Notes already recorded on this task');
-    for (const c of history) lines.push(`- [${c.author}] ${c.body}`);
+  const description = attachments.toLocalPaths(task.description);
+  if (description) lines.push('', description);
+  const notes = history.map((c) => `- [${c.author}] ${attachments.toLocalPaths(c.body)}`);
+  if (notes.length) lines.push('', '## Notes already recorded on this task', ...notes);
+  if ([description, ...notes].some((t) => t.includes(attachments.LOCAL_FILE_TAG))) {
+    lines.push('', `Anything marked \`(${attachments.LOCAL_FILE_TAG}…)\` above is a file the human attached.`
+      + ' Open it from that path with your file tools; screenshots and logs there are part of the brief.');
   }
   lines.push('', 'Do the work now, then report back.');
   return lines.join('\n');

@@ -101,6 +101,11 @@
     <label>Instructions for the agent
       <textarea name="description" rows="6" placeholder="Describe what you want done, and how you'll know it worked."></textarea>
     </label>
+    <div class="attach-row">
+      <button type="button" class="btn btn-sm" id="taskAttachBtn">Attach files</button>
+      <input type="file" id="taskAttachInput" multiple hidden>
+      <small class="muted">Or paste a screenshot, or drop files on the box above.</small>
+    </div>
     <label>Status
       <input name="status" list="statusOptions" autocomplete="off" placeholder="ready">
       <datalist id="statusOptions"></datalist>
@@ -166,7 +171,12 @@
 
     <form class="comment-form" id="commentForm">
       <textarea name="body" rows="3" placeholder="Add a note (review findings, test results, follow-ups)…"></textarea>
-      <button class="btn btn-primary" type="submit">Add comment</button>
+      <div class="attach-row">
+        <button type="button" class="btn btn-sm" id="commentAttachBtn">Attach files</button>
+        <input type="file" id="commentAttachInput" multiple hidden>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="submit">Add comment</button>
+      </div>
     </form>
   </div>
 </aside>

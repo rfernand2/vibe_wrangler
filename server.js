@@ -6,17 +6,10 @@ const path = require('node:path');
 const { projects, tasks, comments, allStatuses, allTags, quickTags } = require('./db');
 const agent = require('./agent');
 const events = require('./events');
+const attachments = require('./attachments');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-};
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { 'Cache-Control': 'no-store', ...headers });
@@ -42,14 +35,38 @@ function readBody(req) {
   });
 }
 
+function readRaw(req, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) return reject(new Error('Attachment is too large'));
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 function serveStatic(req, res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
   const file = path.join(PUBLIC_DIR, rel);
   if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     return send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
   }
+  send(res, 200, fs.readFileSync(file), { 'Content-Type': attachments.mimeFor(file) });
+}
+
+function serveAttachment(res, pathname) {
+  const file = attachments.resolve(pathname);
+  if (!file) return send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
   send(res, 200, fs.readFileSync(file), {
-    'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+    'Content-Type': attachments.mimeFor(file),
+    // Uploads are user content served from the app's own origin: stop the browser sniffing a type we
+    // did not intend, and stop an SVG or HTML upload running script if it is opened directly.
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
   });
 }
 
@@ -61,10 +78,21 @@ async function api(req, res, url) {
   const seg = url.pathname.split('/').filter(Boolean); // ['api', ...]
   const [, a, b, c] = seg;
   const method = req.method;
-  const body = method === 'POST' || method === 'PUT' ? await readBody(req) : {};
 
   // /api/events — the open stream that keeps every tab current
   if (a === 'events' && method === 'GET') return events.subscribe(req, res);
+
+  // /api/attachments — the body is the file itself, so there is no multipart envelope to parse.
+  // The name rides in a header, percent-encoded because header values cannot carry arbitrary text.
+  if (a === 'attachments' && method === 'POST') {
+    let name = 'file';
+    try { name = decodeURIComponent(req.headers['x-filename'] || '') || 'file'; } catch { /* keep the default */ }
+    const buf = await readRaw(req, attachments.MAX_BYTES);
+    if (!buf.length) return json(res, 400, { error: 'Attachment is empty' });
+    return json(res, 201, attachments.save(name, buf));
+  }
+
+  const body = method === 'POST' || method === 'PUT' ? await readBody(req) : {};
 
   // /api/statuses
   if (a === 'statuses' && method === 'GET') return json(res, 200, allStatuses());
@@ -234,6 +262,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
     if (url.pathname.startsWith('/api/')) await api(req, res, url);
+    else if (url.pathname.startsWith(attachments.URL_PREFIX)) serveAttachment(res, url.pathname);
     else serveStatic(req, res, url.pathname);
   } catch (err) {
     json(res, 500, { error: err.message });

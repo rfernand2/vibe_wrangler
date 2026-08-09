@@ -51,6 +51,101 @@ function toast(msg, isError = false) {
 
 const run = (fn) => (...args) => fn(...args).catch((e) => toast(e.message, true));
 
+/* ---------- Attachments ---------- */
+
+/** The one shape the app writes for an attachment, and the only markup it renders back. */
+const ATTACHMENT_REF = /(!?)\[([^\]\n]*)\]\((\/attachments\/[^)\s]+)\)/g;
+
+async function uploadFile(file) {
+  // A pasted screenshot often arrives nameless, so give it one the agent can make sense of later.
+  const name = file.name || `pasted-${Date.now()}.${(file.type.split('/')[1] || 'bin').replace(/\W/g, '')}`;
+  const res = await fetch('/api/attachments', {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      'X-Filename': encodeURIComponent(name),
+    },
+    body: file,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function insertAtCursor(ta, text) {
+  const start = ta.selectionStart ?? ta.value.length;
+  const before = ta.value.slice(0, start);
+  const lead = before && !before.endsWith('\n') ? '\n' : '';
+  ta.value = before + lead + text + ta.value.slice(ta.selectionEnd ?? start);
+  ta.selectionStart = ta.selectionEnd = (before + lead + text).length;
+  ta.focus();
+}
+
+async function attachFiles(ta, fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  toast(files.length === 1 ? `Uploading ${files[0].name || 'image'}…` : `Uploading ${files.length} files…`);
+  for (const file of files) {
+    const { name, url } = await uploadFile(file);
+    // Brackets and parens in the name would break the reference we are writing.
+    const label = name.replace(/[[\]()]/g, '_');
+    insertAtCursor(ta, `${file.type.startsWith('image/') ? '!' : ''}[${label}](${url})\n`);
+  }
+  toast(files.length === 1 ? 'Attached' : `Attached ${files.length} files`);
+}
+
+/** Paste, drop and the button all end the same way: a reference in the text where the caret was. */
+function wireAttachments(ta, btn, input) {
+  ta.addEventListener('paste', (e) => {
+    if (!e.clipboardData?.files.length) return;
+    e.preventDefault();
+    run(attachFiles)(ta, e.clipboardData.files);
+  });
+  ta.addEventListener('dragover', (e) => { e.preventDefault(); ta.classList.add('dropping'); });
+  ta.addEventListener('dragleave', () => ta.classList.remove('dropping'));
+  ta.addEventListener('drop', (e) => {
+    ta.classList.remove('dropping');
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    run(attachFiles)(ta, e.dataTransfer.files);
+  });
+  btn.onclick = () => input.click();
+  input.onchange = run(async () => {
+    await attachFiles(ta, input.files);
+    input.value = '';
+  });
+}
+
+/**
+ * Only the app's own attachment references become elements; every other character stays a text node.
+ * That keeps images and downloads inline without opening the door to arbitrary markup in a comment.
+ */
+function renderBody(el, text) {
+  const src = String(text || '');
+  el.replaceChildren();
+  let last = 0;
+  for (const m of src.matchAll(ATTACHMENT_REF)) {
+    if (m.index > last) el.append(document.createTextNode(src.slice(last, m.index)));
+    const [, isImage, label, url] = m;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.className = isImage ? 'att-image' : 'att-file';
+    if (isImage) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = label;
+      link.append(img);
+    } else {
+      link.textContent = label || url;
+    }
+    el.append(link);
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) el.append(document.createTextNode(src.slice(last)));
+}
+
 function statusClass(s) {
   return ['ready', 'active', 'completed', 'failed'].includes(s) ? s : '';
 }
@@ -454,7 +549,7 @@ function renderTask() {
   if (elapsed) {
     $('detailMeta').append(document.createTextNode(t.status === 'active' ? ' · running ' : ' · took '), elapsed);
   }
-  $('detailDesc').textContent = t.description || '';
+  renderBody($('detailDesc'), t.description);
 
   $('detailChecklistBlock').hidden = !t.checklist.length;
   if (t.checklist.length) {
@@ -510,7 +605,7 @@ function renderTask() {
     head.append(who, at, spacer, del);
     const body = document.createElement('div');
     body.className = 'comment-body';
-    body.textContent = c.body;
+    renderBody(body, c.body);
     li.append(head, body);
     list.append(li);
   }
@@ -745,6 +840,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ---------- Boot ---------- */
+
+wireAttachments($('taskForm').description, $('taskAttachBtn'), $('taskAttachInput'));
+wireAttachments($('commentForm').body, $('commentAttachBtn'), $('commentAttachInput'));
 
 run(async () => {
   const cfg = await api('GET', '/api/config');

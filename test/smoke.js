@@ -10,6 +10,7 @@ const assert = require('node:assert');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
 process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
+process.env.VIBE_WRANGLER_ATTACHMENTS = path.join(tmp, 'attachments');
 process.env.PORT = '38111';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
 
@@ -301,6 +302,42 @@ async function main() {
   await call('DELETE', `/api/projects/${proj.id}`);
   assert.equal((await call('GET', `/api/tasks/${t1.id}`)).status, 404, 'tasks are cascade-deleted');
   ok('deleting a project removes its tasks');
+
+  // --- attachments ---
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64');
+  const upload = await fetch(`${base}/api/attachments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', 'X-Filename': encodeURIComponent('my shot (1).png') },
+    body: png,
+  });
+  const saved = await upload.json();
+  assert.equal(upload.status, 201);
+  assert.match(saved.url, /^\/attachments\/[0-9a-f]{12}-my_shot_1_\.png$/);
+  assert.equal(saved.name, 'my shot (1).png');
+  ok('stores an upload under a sanitised, collision-proof name');
+
+  const fetched = await fetch(base + saved.url);
+  assert.equal(fetched.status, 200);
+  assert.equal(fetched.headers.get('content-type'), 'image/png');
+  assert.equal(fetched.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), png);
+  ok('serves an attachment back byte for byte, with sniffing turned off');
+
+  assert.equal((await call('GET', '/attachments/..%2Fdb.js')).status, 404);
+  assert.equal((await call('GET', '/attachments/nope.png')).status, 404);
+  ok('rejects traversal and unknown attachments');
+
+  assert.equal((await fetch(`${base}/api/attachments`, { method: 'POST' })).status, 400);
+  ok('rejects an empty upload');
+
+  const attachments = require('../attachments');
+  assert.match(attachments.toLocalPaths(`before ![shot](${saved.url}) after`),
+    /^before shot \(local file: .+my_shot_1_\.png\) after$/);
+  assert.equal(attachments.toLocalPaths('![gone](/attachments/nope.png)'),
+    '![gone](/attachments/nope.png)', 'a reference that no longer resolves is left as written');
+  ok('rewrites attachment references to local paths for the agent');
 
   assert.equal((await call('GET', '/api/nope')).status, 404);
   ok('unknown endpoints 404');

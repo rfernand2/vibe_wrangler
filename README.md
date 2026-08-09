@@ -38,6 +38,10 @@ Projects  ──▶  Tasks  ──▶  Comments
   - **anything else** (`blocked`, `on hold`, `idea`, …) — user-defined; the agent ignores these
 - **Comments** — an append-only conversation per task. The agent writes progress notes while it works and a
   summary when it finishes. You can add your own comments too (review notes, test results, follow-ups).
+- **Attachments** — paste a screenshot straight into a task description or a comment, drop files onto
+  either box, or use **Attach files**. Images render inline; everything else becomes a download link.
+  The agent sees each attachment as a path to a real file on disk, so it can open your mock-up, log or
+  spec rather than being told one exists.
 - **Checklists** — the agent breaks each task into sub-tasks up front and ticks them off as it goes, so you
   can see how far through it is rather than just "active". A task's checklist opens itself on the board
   while the agent is working and folds away once it stops; the triangle beside any task overrides that
@@ -194,6 +198,8 @@ Environment variables:
 | `VIBE_WRANGLER_DB` | `./data/vibe_wrangler.db` | SQLite database file |
 | `VIBE_WRANGLER_LOGS` | `./data/logs` | Directory for raw agent transcripts |
 | `VIBE_WRANGLER_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
+| `VIBE_WRANGLER_ATTACHMENTS` | `./data/attachments` | Where pasted and uploaded files are stored |
+| `ATTACHMENT_MAX_BYTES` | `26214400` | Largest single upload accepted (25 MB) |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
 | `AGENT_EXIT_GRACE_MS` | `20000` | How long to wait for the CLI to exit after it reports its result |
@@ -281,6 +287,8 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `POST` | `/api/tasks/:id/comments` | Add a comment |
 | `DELETE` | `/api/comments/:id` | Delete a comment |
+| `POST` | `/api/attachments` | Upload a file — the body is the file, the name rides in `X-Filename` |
+| `GET` | `/attachments/:file` | Serve an uploaded file back |
 | `POST` | `/api/tasks/:id/run` | Hand the task to the agent |
 | `POST` | `/api/tasks/:id/stop` | Stop a running agent |
 | `POST` | `/api/projects/:id/run-ready` | Run every `ready` task in the project |
