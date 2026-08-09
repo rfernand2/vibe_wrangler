@@ -94,9 +94,20 @@ server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
 agent.js           Spawns the Claude CLI, parses its output into comments
 public/            Single-page front end (no build step, no framework)
+test/smoke.js      End-to-end API test against a throwaway database
 data/              SQLite database + raw agent logs (git-ignored)
 run.bat            Start the app on Windows
 ```
+
+## Tests
+
+```sh
+npm test
+```
+
+Spins the server up on a spare port against a temporary database and exercises the whole API — CRUD,
+status filtering, cascade deletes, and the agent's failure paths (missing project directory, missing CLI).
+It never invokes the real Claude CLI, so it's fast and free.
 
 ## API
 
