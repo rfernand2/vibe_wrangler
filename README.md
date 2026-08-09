@@ -18,6 +18,8 @@ Projects  ──▶  Tasks  ──▶  Comments
                  └── agent ────┘
 ```
 
+![The Vibe Wrangler board: projects down the left, tasks in the middle, an active task showing its checklist half ticked off](docs/screenshot.png)
+
 ## Features
 
 - **Projects** — create / edit / delete. Each project points at a working directory on disk (that's where the agent runs).
