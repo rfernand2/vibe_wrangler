@@ -313,6 +313,7 @@ function renderTask() {
     const head = document.createElement('div');
     head.className = 'comment-head';
     const who = document.createElement('strong');
+    who.className = 'comment-author';
     who.textContent = c.author;
     const at = document.createElement('span');
     at.textContent = when(c.created_at);

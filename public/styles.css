@@ -11,6 +11,10 @@
   --completed: #4ade80;
   --failed: #f87171;
   --danger: #ef4444;
+  /* Comment authors: distinct hues so a glance down the thread separates the voices. */
+  --author-agent: #4cc9f0;
+  --author-user: #c084fc;
+  --author-system: #7b8496;
   --radius: 8px;
 }
 
@@ -287,13 +291,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .comment {
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--muted);
+  border-left: 4px solid var(--author-system);
   border-radius: var(--radius);
   padding: 8px 10px;
 }
-.comment.agent { border-left-color: var(--active); }
-.comment.user { border-left-color: var(--accent); }
-.comment.system { border-left-color: var(--muted); opacity: .85; }
+.comment.agent { border-left-color: var(--author-agent); }
+.comment.user  { border-left-color: var(--author-user); }
+.comment.system { border-left-color: var(--author-system); opacity: .85; }
+
+.comment.agent .comment-author { color: var(--author-agent); }
+.comment.user  .comment-author { color: var(--author-user); }
+
 .comment-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 .comment-body { white-space: pre-wrap; word-break: break-word; }
 .comment-form { display: grid; gap: 8px; justify-items: end; }
