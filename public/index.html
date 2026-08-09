@@ -13,6 +13,7 @@
   <h1>llm_tasks</h1>
   <span class="appbar-sub" id="agentInfo"></span>
   <span class="spacer"></span>
+  <button class="btn btn-ghost" id="agentsBtn" title="Running agents">Agents</button>
   <button class="btn btn-ghost" id="refreshBtn" title="Refresh">Refresh</button>
 </header>
 
@@ -51,14 +52,17 @@
         <div class="filters" id="statusFilters"></div>
         <span class="spacer"></span>
         <button class="btn" id="runReadyBtn">Run all ready</button>
+        <button class="btn" id="runFailedBtn">Retry failed</button>
         <button class="btn btn-primary" id="newTaskBtn">New task</button>
       </div>
 
       <div class="toolbar tag-toolbar" id="viewToolbar">
+        <label class="check-toggle">
+          <input type="checkbox" id="checklistToggle">
+          Show checklists
+        </label>
         <span class="filter-label" id="tagLabel">Tags</span>
         <div class="filters" id="tagFilters"></div>
-        <span class="spacer"></span>
-        <button class="btn btn-sm" id="checklistToggle">Checklists</button>
       </div>
 
       <ul class="task-list" id="taskList"></ul>
@@ -117,6 +121,21 @@
       <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>
+</dialog>
+
+<!-- Agents dialog -->
+<dialog id="agentsDialog">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <h3>Running agents</h3>
+      <button type="button" class="icon-btn" data-close="agentsDialog" aria-label="Close">&times;</button>
+    </div>
+    <p class="muted">Every agent process this app knows about, including any it inherited from an earlier session.</p>
+    <ul class="agent-list" id="agentList"></ul>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="agentsDialog">Close</button>
+    </div>
+  </div>
 </dialog>
 
 <!-- Task detail drawer -->

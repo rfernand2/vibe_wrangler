@@ -3,8 +3,9 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tasks, comments, projects, checklist } = require('./db');
+const { tasks, comments, projects, checklist, runs } = require('./db');
 const git = require('./git');
+const proc = require('./proc');
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const MODEL = process.env.AGENT_MODEL || 'claude-opus-5';
@@ -16,29 +17,18 @@ const MAX_MERGE_ATTEMPTS = 3;
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
-/** taskId -> { child, logFile } */
+/** taskId -> { child, log, runId, stopping } — agents this instance spawned. */
 const running = new Map();
+/** taskId -> run row — agents inherited from an earlier instance of the app. */
+const adopted = new Map();
 /** taskId -> { root, wtPath, branch, base } — only for tasks isolated in a worktree. */
 const isolation = new Map();
 /** projectId -> taskId[] — only used for projects we cannot isolate (non-git directories). */
 const queues = new Map();
 
 function isRunning(taskId) {
-  return running.has(Number(taskId));
-}
-
-/** A task left 'active' by a crashed or restarted server has no process behind it any more. */
-function recoverStaleTasks() {
-  const stale = tasks.list({ status: 'active' });
-  for (const t of stale) {
-    comments.create({
-      task_id: t.id,
-      author: 'system',
-      body: 'The app restarted while this task was running, so the agent was interrupted. Set back to ready.',
-    });
-    tasks.setStatus(t.id, 'ready');
-  }
-  return stale.length;
+  taskId = Number(taskId);
+  return running.has(taskId) || adopted.has(taskId);
 }
 
 function buildPrompt(task, project, history, iso) {
@@ -149,7 +139,7 @@ function childEnv() {
  * Spawns one Claude run. Notes become comments as they stream; the caller decides what
  * happens afterwards, so the same plumbing serves both the task run and conflict resolution.
  */
-function spawnAgent({ taskId, cwd, prompt, log, onDone }) {
+function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
   const args = [
     '-p',
     '--output-format', 'stream-json',
@@ -166,13 +156,28 @@ function spawnAgent({ taskId, cwd, prompt, log, onDone }) {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  running.set(taskId, { child, log });
+  // Recorded before anything else can go wrong, so a crash here still leaves a trail to follow.
+  const record = child.pid
+    ? runs.start({
+      task_id: taskId,
+      pid: child.pid,
+      image: proc.imageName(child.pid),
+      log_file: logFile ? path.basename(logFile) : null,
+      worktree: iso?.wtPath ?? null,
+      branch: iso?.branch ?? null,
+      base: iso?.base ?? null,
+    })
+    : null;
+
+  const entry = { child, log, runId: record?.id ?? null, stopping: false };
+  running.set(taskId, entry);
 
   let settled = false;
   const settle = (result) => {
     if (settled) return;
     settled = true;
     running.delete(taskId);
+    if (record) runs.end(record.id);
     onDone(result);
   };
 
@@ -225,7 +230,8 @@ function spawnAgent({ taskId, cwd, prompt, log, onDone }) {
   });
 
   child.on('close', (code, signal) => {
-    if (signal) return settle({ status: 'stopped' });
+    // A tree kill on Windows reports a plain non-zero exit, so the flag is what marks it deliberate.
+    if (signal || entry.stopping) return settle({ status: 'stopped' });
     if (code !== 0) {
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 500);
       return settle({ status: 'error', message: `Agent exited with an error${detail ? `: ${detail}` : ` (exit code ${code})`}.` });
@@ -244,7 +250,7 @@ function openIsolation(taskId, project, root) {
   const base = git.currentBranch(root);
   if (!base) return null;
 
-  const branch = `llm-task/${taskId}`;
+  const branch = git.pickTaskBranch(root, base, taskId);
   const wtPath = path.join(WORKTREE_DIR, `p${project.id}-task-${taskId}`);
   fs.mkdirSync(WORKTREE_DIR, { recursive: true });
 
@@ -340,6 +346,8 @@ function runTask(taskId) {
     cwd,
     prompt,
     log,
+    iso,
+    logFile,
     onDone: (result) => {
       if (result.status === 'spawn-error') return finish(taskId, 'failed', result.message, log);
       if (result.status === 'stopped') return finish(taskId, 'ready', 'Agent run was stopped before it finished.', log);
@@ -418,6 +426,8 @@ function resolveConflicts(taskId, task, iso, log, attempt) {
     cwd: iso.wtPath,
     prompt: buildConflictPrompt(task, iso, files),
     log,
+    iso,
+    logFile: tasks.get(taskId)?.log_file,
     onDone: (result) => {
       if (result.status !== 'ok') {
         git.abortMerge(iso.wtPath);
@@ -458,9 +468,12 @@ function stopTask(taskId) {
   taskId = Number(taskId);
   const entry = running.get(taskId);
   if (entry) {
-    entry.child.kill();
+    entry.stopping = true;
+    // Kill the tree, not just the child: on Windows the CLI runs under a shell shim.
+    if (!entry.child.pid || !proc.killTree(entry.child.pid)) entry.child.kill();
     return true;
   }
+  if (adopted.has(taskId)) return proc.killTree(adopted.get(taskId).pid);
   for (const [projectId, q] of queues) {
     const i = q.indexOf(taskId);
     if (i < 0) continue;
@@ -472,13 +485,132 @@ function stopTask(taskId) {
   return false;
 }
 
-function runReady(projectId) {
-  const ready = tasks.list({ projectId: Number(projectId), status: 'ready' });
+function runStatus(projectId, status) {
   const started = [];
-  for (const t of ready) {
+  for (const t of tasks.list({ projectId: Number(projectId), status })) {
     try { runTask(t.id); started.push(t.id); } catch { /* already running */ }
   }
   return started;
+}
+
+const runReady = (projectId) => runStatus(projectId, 'ready');
+const runFailed = (projectId) => runStatus(projectId, 'failed');
+
+/* ---------- Agents inherited from an earlier instance of the app ---------- */
+
+const ADOPT_POLL_MS = 4000;
+
+/**
+ * A restart severs the pipe to any agent still running, so its output is gone for good — but the
+ * process, and the worktree it is writing into, are not. Adopting it means we can still tell the
+ * user it is alive, let them stop it, and keep whatever it produces.
+ */
+function adoptOrphans() {
+  const result = { adopted: 0, closed: 0, reset: 0 };
+
+  for (const r of runs.open()) {
+    if (proc.looksLike(r.pid, r.image)) {
+      adopt(r);
+      result.adopted++;
+    } else {
+      runs.end(r.id);
+      result.closed++;
+    }
+  }
+
+  for (const t of tasks.list({ status: 'active' })) {
+    if (adopted.has(t.id)) continue;
+    comments.create({
+      task_id: t.id,
+      author: 'system',
+      body: 'The app restarted while this task was running and its agent is gone. Set back to ready.',
+    });
+    tasks.setStatus(t.id, 'ready');
+    result.reset++;
+  }
+  return result;
+}
+
+function adopt(record) {
+  adopted.set(record.task_id, record);
+  if (record.task_status !== 'active') tasks.setStatus(record.task_id, 'active');
+  comments.create({
+    task_id: record.task_id,
+    author: 'system',
+    body: `The app restarted, but this agent (process ${record.pid}) is still running. Reattached to it — `
+      + 'its progress notes were lost with the restart, so the thread will stay quiet until it exits.',
+  });
+
+  const timer = setInterval(() => {
+    if (proc.isAlive(record.pid)) return;
+    clearInterval(timer);
+    finishAdopted(record);
+  }, ADOPT_POLL_MS);
+  timer.unref?.();
+}
+
+/**
+ * We never saw this process's exit code, so we cannot claim it succeeded. Commit whatever it left
+ * in its worktree, park it on the branch, and let the user decide.
+ */
+function finishAdopted(record) {
+  adopted.delete(record.task_id);
+  runs.end(record.id);
+
+  const task = tasks.get(record.task_id);
+  if (!task) return;
+
+  let where = 'It was not merged, because the app could not see whether it finished cleanly.';
+  if (record.worktree && fs.existsSync(record.worktree)) {
+    git.commitAll(record.worktree, `${task.title}\n\nllm_tasks task #${task.id} (interrupted by an app restart)`);
+    const kept = git.shortLog(record.project_directory, record.base, record.branch).length;
+    git.git(record.project_directory, ['worktree', 'remove', '--force', record.worktree]);
+    git.git(record.project_directory, ['worktree', 'prune']);
+    where = kept
+      ? `Its work is committed on branch \`${record.branch}\` — review and merge it, or run the task again.`
+      : 'It had not changed anything, so there is nothing to merge.';
+  }
+
+  comments.create({
+    task_id: task.id,
+    author: 'system',
+    body: `The agent inherited from the previous app session has exited. ${where}`,
+  });
+  tasks.setStatus(task.id, 'failed');
+  drainQueue(task.project_id);
+}
+
+/** Every agent this app knows about, whether this instance started it or inherited it. */
+function listAgents() {
+  const out = [];
+  for (const r of runs.open()) {
+    const alive = adopted.has(r.task_id) || running.has(r.task_id)
+      ? proc.isAlive(r.pid)
+      : proc.looksLike(r.pid, r.image);
+    if (!alive) { runs.end(r.id); continue; }
+    out.push({
+      id: r.id,
+      task_id: r.task_id,
+      task_title: r.task_title,
+      project_name: r.project_name,
+      pid: r.pid,
+      branch: r.branch,
+      started_at: r.started_at,
+      mine: r.server_pid === process.pid,
+    });
+  }
+  return out;
+}
+
+function killAgent(runId) {
+  const record = runs.get(Number(runId));
+  if (!record || record.ended_at) return false;
+  if (running.has(record.task_id) || adopted.has(record.task_id)) return stopTask(record.task_id);
+  if (!proc.looksLike(record.pid, record.image)) {
+    runs.end(record.id);
+    return false;
+  }
+  return proc.killTree(record.pid);
 }
 
 function readLog(taskId) {
@@ -490,6 +622,7 @@ function readLog(taskId) {
 }
 
 module.exports = {
-  runTask, stopTask, runReady, isRunning, readLog, recoverStaleTasks,
+  runTask, stopTask, runReady, runFailed, isRunning, readLog,
+  adoptOrphans, listAgents, killAgent,
   MODEL, CLAUDE_BIN, WORKTREE_DIR,
 };

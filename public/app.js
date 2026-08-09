@@ -235,7 +235,7 @@ function renderFilters() {
 }
 
 async function loadTasks() {
-  const projectOnly = ['editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'newTaskBtn'];
+  const projectOnly = ['editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn'];
 
   if (state.view === 'all') {
     $('emptyState').hidden = true;
@@ -324,11 +324,6 @@ function renderTasks() {
     }
 
     li.append(pill, main);
-    if (t.status === 'active') {
-      const sp = document.createElement('span');
-      sp.className = 'spinner';
-      li.append(sp);
-    }
     list.append(li);
   }
 }
@@ -458,14 +453,11 @@ document.addEventListener('click', (e) => {
 $('allTasksBtn').onclick = selectAllTasks;
 
 function renderChecklistToggle() {
-  const btn = $('checklistToggle');
-  btn.classList.toggle('active', state.showChecklists);
-  btn.textContent = state.showChecklists ? 'Hide checklists' : 'Show checklists';
+  $('checklistToggle').checked = state.showChecklists;
 }
-$('checklistToggle').onclick = () => {
-  state.showChecklists = !state.showChecklists;
+$('checklistToggle').onchange = (e) => {
+  state.showChecklists = e.target.checked;
   localStorage.setItem('showChecklists', state.showChecklists ? '1' : '0');
-  renderChecklistToggle();
   renderTasks();
 };
 
@@ -584,6 +576,64 @@ $('runReadyBtn').onclick = run(async () => {
   await loadTasks();
   startPolling();
   toast(started.length ? `Started ${started.length} task(s)` : 'No ready tasks');
+});
+
+$('runFailedBtn').onclick = run(async () => {
+  const { started } = await api('POST', `/api/projects/${state.projectId}/run-failed`);
+  await loadProjects();
+  await loadTasks();
+  startPolling();
+  toast(started.length ? `Retrying ${started.length} task(s)` : 'No failed tasks');
+});
+
+async function renderAgents() {
+  const list = $('agentList');
+  const agents = await api('GET', '/api/agents');
+  list.textContent = '';
+  if (!agents.length) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.textContent = 'No agents are running.';
+    list.append(li);
+    return;
+  }
+  for (const a of agents) {
+    const li = document.createElement('li');
+    li.className = 'agent-item';
+
+    const main = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'agent-title';
+    title.textContent = a.task_title;
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    meta.textContent = [
+      a.project_name,
+      `pid ${a.pid}`,
+      a.branch,
+      `since ${when(a.started_at)}`,
+      a.mine ? null : 'inherited from an earlier session',
+    ].filter(Boolean).join(' · ');
+    main.append(title, meta);
+
+    const stop = document.createElement('button');
+    stop.className = 'btn btn-danger btn-sm';
+    stop.textContent = 'Stop';
+    stop.onclick = run(async () => {
+      await api('POST', `/api/agents/${a.id}/stop`);
+      toast('Stopping agent');
+      await renderAgents();
+      await loadTasks();
+    });
+
+    li.append(main, stop);
+    list.append(li);
+  }
+}
+
+$('agentsBtn').onclick = run(async () => {
+  openDialog('agentsDialog');
+  await renderAgents();
 });
 
 $('commentForm').addEventListener('submit', run(async (e) => {

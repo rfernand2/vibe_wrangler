@@ -30,6 +30,18 @@ function branchExists(dir, branch) {
   return git(dir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).ok;
 }
 
+/**
+ * Picks a branch name for a task, stepping aside when the obvious one still holds commits that
+ * never made it back to base — a retry must never destroy the work the failed attempt saved.
+ */
+function pickTaskBranch(dir, base, taskId) {
+  const first = `llm-task/${taskId}`;
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? first : `${first}-retry${n}`;
+    if (!branchExists(dir, name) || !shortLog(dir, base, name).length) return name;
+  }
+}
+
 /** Clears anything a previous crashed run left behind, then creates a fresh branch + worktree. */
 function addWorktree(dir, wtPath, branch, base) {
   git(dir, ['worktree', 'remove', '--force', wtPath]);
@@ -96,6 +108,6 @@ function shortLog(dir, base, branch) {
 }
 
 module.exports = {
-  git, isRepo, currentBranch, branchExists, addWorktree, removeWorktree,
+  git, isRepo, currentBranch, branchExists, pickTaskBranch, addWorktree, removeWorktree,
   isDirty, commitAll, mergeBaseIn, conflictedFiles, stillConflicted, abortMerge, fastForward, shortLog,
 };

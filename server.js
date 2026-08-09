@@ -128,6 +128,11 @@ async function api(req, res, url) {
         if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
         return json(res, 200, { started: agent.runReady(id) });
       }
+
+      if (c === 'run-failed' && method === 'POST') {
+        if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
+        return json(res, 200, { started: agent.runFailed(id) });
+      }
     }
   }
 
@@ -192,6 +197,16 @@ async function api(req, res, url) {
     }
   }
 
+  // /api/agents
+  if (a === 'agents') {
+    if (!b && method === 'GET') return json(res, 200, agent.listAgents());
+    if (b && c === 'stop' && method === 'POST') {
+      return agent.killAgent(Number(b))
+        ? json(res, 200, { ok: true })
+        : json(res, 409, { error: 'That agent is no longer running' });
+    }
+  }
+
   // /api/comments/:id
   if (a === 'comments' && b && method === 'DELETE') {
     return comments.remove(Number(b)) ? json(res, 200, { ok: true }) : json(res, 404, { error: 'Comment not found' });
@@ -211,8 +226,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  const recovered = agent.recoverStaleTasks();
-  if (recovered) console.log(`reset ${recovered} task(s) left active by a previous run`);
+  const r = agent.adoptOrphans();
+  if (r.adopted) console.log(`reattached to ${r.adopted} agent(s) still running from a previous session`);
+  if (r.closed) console.log(`closed ${r.closed} stale agent run record(s)`);
+  if (r.reset) console.log(`reset ${r.reset} task(s) left active by a previous run`);
   console.log(`llm_tasks running at http://localhost:${PORT}`);
   console.log(`agent: ${agent.CLAUDE_BIN} --model ${agent.MODEL} --dangerously-skip-permissions`);
 });

@@ -215,17 +215,6 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .elapsed { font-variant-numeric: tabular-nums; }
 .elapsed.running { color: var(--active); }
 
-.spinner {
-  width: 12px; height: 12px;
-  margin-top: 4px;
-  border: 2px solid rgba(255,255,255,.25);
-  border-top-color: var(--active);
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin .8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
 /* ---------- Dialogs ---------- */
 dialog {
   border: 1px solid var(--line);
@@ -240,7 +229,36 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+.agent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.agent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.agent-title { font-size: 14px; }
+
 label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.check-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.check-toggle input {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 input, textarea {
   font: inherit;
   color: var(--text);

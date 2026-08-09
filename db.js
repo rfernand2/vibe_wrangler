@@ -58,6 +58,21 @@ db.exec(`
     done_at    TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    pid        INTEGER NOT NULL,
+    server_pid INTEGER NOT NULL,
+    image      TEXT,
+    log_file   TEXT,
+    worktree   TEXT,
+    branch     TEXT,
+    base       TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at   TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_runs_open ON agent_runs(ended_at);
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
@@ -277,6 +292,38 @@ const comments = {
   },
 };
 
+/**
+ * Every agent process is recorded here before it starts, so a later run of the app can find
+ * processes its predecessor left behind instead of losing track of them.
+ */
+const runs = {
+  start({ task_id, pid, image = null, log_file = null, worktree = null, branch = null, base = null }) {
+    const { lastInsertRowid } = q(`
+      INSERT INTO agent_runs (task_id, pid, server_pid, image, log_file, worktree, branch, base)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task_id, pid, process.pid, image, log_file, worktree, branch, base);
+    return runs.get(Number(lastInsertRowid));
+  },
+  get(id) {
+    return q('SELECT * FROM agent_runs WHERE id = ?').get(id);
+  },
+  end(id) {
+    return q(`UPDATE agent_runs SET ended_at = datetime('now') WHERE id = ? AND ended_at IS NULL`)
+      .run(id).changes > 0;
+  },
+  open() {
+    return q(`
+      SELECT r.*, t.title AS task_title, t.status AS task_status,
+             p.name AS project_name, p.directory AS project_directory
+      FROM agent_runs r
+      JOIN tasks t ON t.id = r.task_id
+      JOIN projects p ON p.id = t.project_id
+      WHERE r.ended_at IS NULL
+      ORDER BY r.started_at, r.id
+    `).all();
+  },
+};
+
 const BUILTIN_STATUSES = ['ready', 'active', 'completed'];
 
 function allTags() {
@@ -296,6 +343,6 @@ function allStatuses() {
 }
 
 module.exports = {
-  db, projects, tasks, comments, checklist,
+  db, projects, tasks, comments, checklist, runs,
   allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, DB_PATH,
 };

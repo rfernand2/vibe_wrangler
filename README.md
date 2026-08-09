@@ -33,6 +33,11 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Run timer** — a live elapsed clock while a task is active, and the final duration once it finishes.
 - **Raw logs** — the full technical transcript of each agent run is saved to disk and linked from the task,
   so it's there when you need it and out of the way when you don't.
+- **Retry failed** — a run that fails leaves the task in `failed` with its work parked on a branch.
+  **Retry failed** re-runs every failed task in the project; the retry gets a *new* branch, so the
+  branch holding the earlier attempt's work is never deleted out from under you.
+- **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
+  This includes agents inherited from an earlier run of the app, not just ones this instance started.
 - **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
 
 ## Why the Claude CLI (not the API)
@@ -117,6 +122,23 @@ still holds the work — nothing is ever thrown away.
 Projects that **aren't** git repos have nowhere to isolate to, so their tasks are queued and run one at
 a time instead.
 
+## Surviving a restart
+
+Every agent process is recorded in the database before it starts — its pid, its worktree, its branch.
+When the app starts up it walks that list and reattaches to any process still alive, so closing the app
+doesn't orphan an agent you can no longer see or stop.
+
+Reattachment is deliberately conservative. A restart severs the pipe carrying the agent's output, and
+there is no way to get it back — so an adopted agent's progress notes are gone, and when it exits the
+app cannot tell whether it succeeded. It commits whatever the agent left in the worktree, parks it on
+the task branch, marks the task `failed`, and tells you where the work is. Nothing is thrown away, and
+nothing is merged on a guess.
+
+Runs whose process is gone are closed out, and any task still marked `active` with no agent behind it
+goes back to `ready`. Pids get recycled, so a recorded pid is only adopted when the process at that pid
+still has the executable name we started — otherwise the app would happily adopt, and later kill, a
+stranger's process.
+
 ## Configuration
 
 Environment variables:
@@ -147,6 +169,7 @@ server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
 agent.js           Spawns the Claude CLI, parses its output into comments
 git.js             Worktree / branch / merge plumbing for concurrent tasks
+proc.js            Liveness, identity and tree-kill for agent processes
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database
 test/worktree.js   Two-agents-one-repo concurrency and merge-conflict test
@@ -189,6 +212,9 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 | `POST` | `/api/tasks/:id/run` | Hand the task to the agent |
 | `POST` | `/api/tasks/:id/stop` | Stop a running agent |
 | `POST` | `/api/projects/:id/run-ready` | Run every `ready` task in the project |
+| `POST` | `/api/projects/:id/run-failed` | Retry every `failed` task in the project |
+| `GET` | `/api/agents` | Every agent process the app knows is running |
+| `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
 | `GET` | `/api/statuses` | Known status values (built-in + user-defined) |
 

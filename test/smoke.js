@@ -195,11 +195,49 @@ async function main() {
   // --- a task left active by a killed server is recovered on the next start ---
   const stale = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Interrupted' })).body;
   await call('PUT', `/api/tasks/${stale.id}`, { status: 'active' });
-  require('../agent').recoverStaleTasks();
+  require('../agent').adoptOrphans();
   const recovered = (await call('GET', `/api/tasks/${stale.id}`)).body;
   assert.equal(recovered.status, 'ready');
   assert.match(recovered.comments.at(-1).body, /restarted/i);
   ok('resets tasks left active by a previous run');
+
+  // --- failed tasks can be retried in bulk ---
+  const retryProj = (await call('POST', '/api/projects', { name: 'Retries', directory: tmp })).body;
+  const bust = (await call('POST', `/api/projects/${retryProj.id}/tasks`, { title: 'Broke' })).body;
+  const spare = (await call('POST', `/api/projects/${retryProj.id}/tasks`, { title: 'Fine' })).body;
+  await call('PUT', `/api/tasks/${bust.id}`, { status: 'failed' });
+  await call('PUT', `/api/tasks/${spare.id}`, { status: 'blocked' });
+  const retried = (await call('POST', `/api/projects/${retryProj.id}/run-failed`)).body;
+  assert.deepEqual(retried.started, [bust.id], 'only the failed task is retried');
+  ok('run-failed retries failed tasks');
+
+  // --- the agent registry is queryable and rejects unknown runs ---
+  assert.ok(Array.isArray((await call('GET', '/api/agents')).body));
+  assert.equal((await call('POST', '/api/agents/99999/stop')).status, 409);
+  ok('lists agents and refuses to stop a run it does not know');
+
+  // --- an agent left running by a previous instance of the app is picked back up ---
+  const { runs, db } = require('../db');
+  const agentMod = require('../agent');
+  const proc = require('../proc');
+
+  const orphanTask = (await call('POST', `/api/projects/${retryProj.id}/tasks`, { title: 'Inherited' })).body;
+  const sleeper = require('node:child_process').spawn(
+    process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  const record = runs.start({ task_id: orphanTask.id, pid: sleeper.pid, image: proc.imageName(sleeper.pid) });
+  // A previous instance recorded it, so it must not look like one of ours.
+  db.prepare('UPDATE agent_runs SET server_pid = 1 WHERE id = ?').run(record.id);
+
+  assert.equal(agentMod.adoptOrphans().adopted, 1);
+  const listed = (await call('GET', '/api/agents')).body.find((x) => x.id === record.id);
+  assert.ok(listed && listed.pid === sleeper.pid && listed.mine === false);
+  assert.equal((await call('GET', `/api/tasks/${orphanTask.id}`)).body.status, 'active');
+  ok('reattaches to an agent inherited from a previous session');
+
+  assert.equal((await call('POST', `/api/agents/${record.id}/stop`)).status, 200);
+  for (let i = 0; i < 60 && proc.isAlive(sleeper.pid); i++) await sleep(100);
+  assert.ok(!proc.isAlive(sleeper.pid), 'the inherited agent was killed');
+  ok('terminates an inherited agent');
 
   // --- deletes cascade ---
   assert.equal((await call('DELETE', `/api/tasks/${t2.id}`)).status, 200);

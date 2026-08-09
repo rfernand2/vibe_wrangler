@@ -186,6 +186,28 @@ async function main() {
   assert.equal(read(repo, 'a.txt'), 'base\nfrom A\n');
   ok('a failed run leaves the main checkout untouched');
 
+  // --- retrying a failed task must not destroy work its branch is still holding ---
+  const t8 = tasks.create({ project_id: p1.id, title: 'Task H', description: 'FAKE_APPEND a.txt|from H' });
+  const held = `llm-task/${t8.id}`;
+  run(repo, 'branch', held);
+  const wt = path.join(tmp, 'held-wt');
+  run(repo, 'worktree', 'add', '--quiet', wt, held);
+  fs.writeFileSync(path.join(wt, 'rescue.txt'), 'work the failed attempt saved\n');
+  run(wt, 'add', '-A');
+  run(wt, 'commit', '--quiet', '-m', 'rescued');
+  run(repo, 'worktree', 'remove', '--force', wt);
+  const rescued = run(repo, 'rev-parse', held);
+
+  agent.runTask(t8.id);
+  await settle([t8.id]);
+
+  assert.equal(tasks.get(t8.id).status, 'completed');
+  assert.equal(run(repo, 'rev-parse', held), rescued, 'the branch holding saved work is untouched');
+  ok('a retry steps aside rather than deleting a branch with unmerged work');
+
+  assert.equal(read(repo, 'a.txt'), 'base\nfrom A\nfrom H\n');
+  ok('the retry still merges its own change back');
+
   console.log(`\n${passed} checks passed`);
 }
 
