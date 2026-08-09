@@ -1,4 +1,4 @@
-# llm_tasks
+# Vibe Wrangler
 
 A lightweight web app for managing **projects** and **tasks** that a **Claude Code agent** works on for you.
 
@@ -163,9 +163,9 @@ Environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
-| `LLM_TASKS_DB` | `./data/llm_tasks.db` | SQLite database file |
-| `LLM_TASKS_LOGS` | `./data/logs` | Directory for raw agent transcripts |
-| `LLM_TASKS_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
+| `VIBE_WRANGLER_DB` | `./data/vibe_wrangler.db` | SQLite database file |
+| `VIBE_WRANGLER_LOGS` | `./data/logs` | Directory for raw agent transcripts |
+| `VIBE_WRANGLER_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
 
@@ -239,4 +239,4 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const events = require('./events');
 
-const DB_PATH = process.env.LLM_TASKS_DB || path.join(__dirname, 'data', 'llm_tasks.db');
+const DB_PATH = process.env.VIBE_WRANGLER_DB || path.join(__dirname, 'data', 'vibe_wrangler.db');
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 

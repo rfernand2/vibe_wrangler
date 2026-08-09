@@ -9,8 +9,8 @@ const proc = require('./proc');
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const MODEL = process.env.AGENT_MODEL || 'claude-opus-5';
-const LOG_DIR = process.env.LLM_TASKS_LOGS || path.join(__dirname, 'data', 'logs');
-const WORKTREE_DIR = process.env.LLM_TASKS_WORKTREES || path.join(__dirname, 'data', 'worktrees');
+const LOG_DIR = process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs');
+const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname, 'data', 'worktrees');
 
 /** Base moving under us is expected when tasks finish together; give up after this many rounds. */
 const MAX_MERGE_ATTEMPTS = 3;
@@ -370,7 +370,7 @@ function runTask(taskId) {
  * sees, so it can never leave them with a conflicted tree.
  */
 function mergeBack(taskId, task, iso, log, attempt) {
-  const commit = git.commitAll(iso.wtPath, `${task.title}\n\nllm_tasks task #${taskId}`);
+  const commit = git.commitAll(iso.wtPath, `${task.title}\n\nvibe_wrangler task #${taskId}`);
   if (!commit.ok) {
     log.write(`\n[git] commit failed: ${commit.err}\n`);
     return abandon(taskId, iso, log, `Could not commit the agent's changes (${commit.err.slice(0, 200)}).`);
@@ -562,7 +562,7 @@ function finishAdopted(record) {
 
   let where = 'It was not merged, because the app could not see whether it finished cleanly.';
   if (record.worktree && fs.existsSync(record.worktree)) {
-    git.commitAll(record.worktree, `${task.title}\n\nllm_tasks task #${task.id} (interrupted by an app restart)`);
+    git.commitAll(record.worktree, `${task.title}\n\nvibe_wrangler task #${task.id} (interrupted by an app restart)`);
     const kept = git.shortLog(record.project_directory, record.base, record.branch).length;
     git.git(record.project_directory, ['worktree', 'remove', '--force', record.worktree]);
     git.git(record.project_directory, ['worktree', 'prune']);

@@ -7,9 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llm_tasks-test-'));
-process.env.LLM_TASKS_DB = path.join(tmp, 'test.db');
-process.env.LLM_TASKS_LOGS = path.join(tmp, 'logs');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
+process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
+process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
 process.env.PORT = '38111';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
 
@@ -37,7 +37,7 @@ async function main() {
   // --- static ---
   const index = await call('GET', '/');
   assert.equal(index.status, 200);
-  assert.match(index.body, /llm_tasks/);
+  assert.match(index.body, /Vibe Wrangler/);
   ok('serves the front end');
 
   assert.equal((await call('GET', '/../db.js')).status, 404);

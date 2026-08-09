@@ -8,10 +8,10 @@ const path = require('node:path');
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'llm_tasks-wt-'));
-process.env.LLM_TASKS_DB = path.join(tmp, 'test.db');
-process.env.LLM_TASKS_LOGS = path.join(tmp, 'logs');
-process.env.LLM_TASKS_WORKTREES = path.join(tmp, 'worktrees');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-wt-'));
+process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
+process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
+process.env.VIBE_WRANGLER_WORKTREES = path.join(tmp, 'worktrees');
 process.env.CLAUDE_BIN = makeFakeCli();
 
 const { projects, tasks, comments } = require('../db');
@@ -80,8 +80,8 @@ async function main() {
   assert.equal(tasks.get(t2.id).status, 'active');
   ok('two tasks in one repo both go active at once');
 
-  assert.ok(fs.existsSync(path.join(process.env.LLM_TASKS_WORKTREES, `p${p1.id}-task-${t1.id}`)));
-  assert.ok(fs.existsSync(path.join(process.env.LLM_TASKS_WORKTREES, `p${p1.id}-task-${t2.id}`)));
+  assert.ok(fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t1.id}`)));
+  assert.ok(fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t2.id}`)));
   ok('each task gets its own worktree');
 
   assert.ok(tasks.get(t1.id).started_at);
@@ -104,7 +104,7 @@ async function main() {
   ok('the main checkout is left clean');
 
   assert.ok(!git.branchExists(repo, `llm-task/${t1.id}`));
-  assert.ok(!fs.existsSync(path.join(process.env.LLM_TASKS_WORKTREES, `p${p1.id}-task-${t1.id}`)));
+  assert.ok(!fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t1.id}`)));
   ok('worktrees and task branches are cleaned up');
 
   assert.match(bodies(t1.id), /merged into main/);

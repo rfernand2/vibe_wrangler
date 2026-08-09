@@ -69,13 +69,13 @@ function commitAll(wtPath, message) {
   if (!isDirty(wtPath) && !mergeInProgress(wtPath)) return { ok: true, out: '', err: '', empty: true };
   const add = git(wtPath, ['add', '-A']);
   if (!add.ok) return add;
-  return git(wtPath, ['-c', 'user.name=llm_tasks', '-c', 'user.email=llm_tasks@localhost',
+  return git(wtPath, ['-c', 'user.name=vibe_wrangler', '-c', 'user.email=vibe_wrangler@localhost',
     'commit', '-m', message]);
 }
 
 /** Merges base into the task branch inside the worktree, where a conflict is harmless. */
 function mergeBaseIn(wtPath, base) {
-  const r = git(wtPath, ['-c', 'user.name=llm_tasks', '-c', 'user.email=llm_tasks@localhost',
+  const r = git(wtPath, ['-c', 'user.name=vibe_wrangler', '-c', 'user.email=vibe_wrangler@localhost',
     'merge', '--no-edit', base]);
   if (r.ok) return { ok: true, conflicted: false };
   return { ok: false, conflicted: conflictedFiles(wtPath).length > 0, err: r.err };

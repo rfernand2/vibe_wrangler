@@ -234,7 +234,7 @@ server.listen(PORT, () => {
   if (r.adopted) console.log(`reattached to ${r.adopted} agent(s) still running from a previous session`);
   if (r.closed) console.log(`closed ${r.closed} stale agent run record(s)`);
   if (r.reset) console.log(`reset ${r.reset} task(s) left active by a previous run`);
-  console.log(`llm_tasks running at http://localhost:${PORT}`);
+  console.log(`Vibe Wrangler running at http://localhost:${PORT}`);
   console.log(`agent: ${agent.CLAUDE_BIN} --model ${agent.MODEL} --dangerously-skip-permissions`);
 });
 

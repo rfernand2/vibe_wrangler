@@ -1,9 +1,12 @@
 {
-  "name": "llm_tasks",
+  "name": "vibe_wrangler",
   "version": "1.0.0",
-  "private": true,
   "description": "Project + task board for work carried out by a Claude Code agent",
   "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rfernand2/vibe_wrangler.git"
+  },
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning server.js",
     "test": "node --no-warnings=ExperimentalWarning test/smoke.js && node --no-warnings=ExperimentalWarning test/worktree.js"
