@@ -1,0 +1,15 @@
+{
+  "name": "llm_tasks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Project + task board for work carried out by a Claude Code agent",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning server.js",
+    "test": "node --no-warnings=ExperimentalWarning test/smoke.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

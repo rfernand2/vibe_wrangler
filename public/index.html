@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm_tasks</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9635;</text></svg>">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="appbar">
+  <h1>llm_tasks</h1>
+  <span class="appbar-sub" id="agentInfo"></span>
+  <span class="spacer"></span>
+  <button class="btn btn-ghost" id="refreshBtn" title="Refresh">Refresh</button>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h2>Projects</h2>
+      <button class="btn btn-primary btn-sm" id="newProjectBtn">New</button>
+    </div>
+    <ul class="project-list" id="projectList"></ul>
+  </aside>
+
+  <section class="content" id="content">
+    <div class="empty" id="emptyState">
+      <p>No project selected.</p>
+      <p class="muted">Create a project and point it at a directory on disk — that's where the agent will work.</p>
+    </div>
+
+    <div id="projectPane" hidden>
+      <div class="project-head">
+        <div>
+          <h2 id="projectName"></h2>
+          <p class="muted" id="projectMeta"></p>
+        </div>
+        <div class="row-actions">
+          <button class="btn" id="editProjectBtn">Edit</button>
+          <button class="btn btn-danger" id="deleteProjectBtn">Delete</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="filters" id="statusFilters"></div>
+        <span class="spacer"></span>
+        <button class="btn" id="runReadyBtn">Run all ready</button>
+        <button class="btn btn-primary" id="newTaskBtn">New task</button>
+      </div>
+
+      <ul class="task-list" id="taskList"></ul>
+    </div>
+  </section>
+</main>
+
+<!-- Project dialog -->
+<dialog id="projectDialog">
+  <form method="dialog" class="dialog-form" id="projectForm">
+    <div class="dialog-head">
+      <h3 id="projectDialogTitle">New project</h3>
+      <button type="button" class="icon-btn" data-close="projectDialog" aria-label="Close">&times;</button>
+    </div>
+    <label>Name
+      <input name="name" required autocomplete="off" placeholder="my-app">
+    </label>
+    <label>Working directory
+      <input name="directory" autocomplete="off" placeholder="C:\github\my-app" spellcheck="false">
+    </label>
+    <label>Description
+      <textarea name="description" rows="3" placeholder="What is this project?"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="projectDialog">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Task dialog -->
+<dialog id="taskDialog">
+  <form method="dialog" class="dialog-form" id="taskForm">
+    <div class="dialog-head">
+      <h3 id="taskDialogTitle">New task</h3>
+      <button type="button" class="icon-btn" data-close="taskDialog" aria-label="Close">&times;</button>
+    </div>
+    <label>Title
+      <input name="title" required autocomplete="off" placeholder="Fix the date parser">
+    </label>
+    <label>Instructions for the agent
+      <textarea name="description" rows="6" placeholder="Describe what you want done, and how you'll know it worked."></textarea>
+    </label>
+    <label>Status
+      <input name="status" list="statusOptions" autocomplete="off" placeholder="ready">
+      <datalist id="statusOptions"></datalist>
+      <small class="muted">Only <code>ready</code> tasks are picked up by the agent. Any other value parks the task.</small>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="taskDialog">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Task detail drawer -->
+<div class="drawer-scrim" id="drawerScrim" hidden></div>
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-head">
+    <div>
+      <span class="pill" id="detailStatus"></span>
+      <h3 id="detailTitle"></h3>
+    </div>
+    <button type="button" class="icon-btn" id="closeDrawerBtn" aria-label="Close">&times;</button>
+  </div>
+  <div class="drawer-body">
+    <p class="muted" id="detailMeta"></p>
+    <pre class="task-desc" id="detailDesc"></pre>
+
+    <div class="row-actions drawer-actions">
+      <button class="btn btn-primary" id="detailRunBtn">Run agent</button>
+      <button class="btn btn-danger" id="detailStopBtn" hidden>Stop</button>
+      <button class="btn" id="detailEditBtn">Edit</button>
+      <button class="btn" id="detailLogBtn">Raw log</button>
+      <button class="btn btn-danger" id="detailDeleteBtn">Delete</button>
+    </div>
+
+    <h4>Comments</h4>
+    <ul class="comments" id="commentList"></ul>
+
+    <form class="comment-form" id="commentForm">
+      <textarea name="body" rows="3" placeholder="Add a note (review findings, test results, follow-ups)…"></textarea>
+      <button class="btn btn-primary" type="submit">Add comment</button>
+    </form>
+  </div>
+</aside>
+
+<!-- Raw log dialog -->
+<dialog id="logDialog">
+  <div class="dialog-form log-dialog">
+    <div class="dialog-head">
+      <h3>Raw agent transcript</h3>
+      <button type="button" class="icon-btn" data-close="logDialog" aria-label="Close">&times;</button>
+    </div>
+    <pre id="logContent"></pre>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
