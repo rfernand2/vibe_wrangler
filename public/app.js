@@ -618,15 +618,27 @@ async function refreshTask() {
 }
 
 let syncing = false;
+let syncAgain = false;
 
-/** Refetches whatever is on screen. Every server notification lands here. */
+/**
+ * Refetches whatever is on screen. Every server notification lands here.
+ *
+ * A notification that arrives mid-sync cannot simply be ignored: the fetches already in flight may
+ * have read the server before that write landed, and the server never repeats itself. So it is
+ * remembered and the whole pass runs again — otherwise the board keeps whatever it happened to read
+ * and stays wrong until the next write or the 30s backstop, which is what "started the agent but the
+ * task still says ready" looked like.
+ */
 async function syncAll() {
-  if (syncing) return;
+  if (syncing) { syncAgain = true; return; }
   syncing = true;
   try {
-    await loadProjects();
-    await loadTasks();
-    if (state.task) await refreshTask();
+    do {
+      syncAgain = false;
+      await loadProjects();
+      await loadTasks();
+      if (state.task) await refreshTask();
+    } while (syncAgain);
   } catch { /* the stream will tell us again */ } finally {
     syncing = false;
   }
