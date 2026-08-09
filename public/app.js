@@ -420,7 +420,10 @@ function renderTasks() {
     main.className = 'task-main';
     const title = document.createElement('div');
     title.className = 'task-title';
-    title.textContent = t.title;
+    const num = document.createElement('span');
+    num.className = 'task-number';
+    num.textContent = `#${t.number}`;
+    title.append(num, document.createTextNode(t.title));
     const sub = document.createElement('div');
     sub.className = 'task-sub';
     const parts = [
@@ -541,7 +544,10 @@ function renderTask() {
   if (!t) return;
   $('detailStatus').className = `pill ${statusClass(t.status)}`;
   $('detailStatus').textContent = t.status;
-  $('detailTitle').textContent = t.title;
+  const detailNum = document.createElement('span');
+  detailNum.className = 'task-number';
+  detailNum.textContent = `#${t.number}`;
+  $('detailTitle').replaceChildren(detailNum, document.createTextNode(t.title));
   $('detailMeta').replaceChildren(
     document.createTextNode(`${t.project_name} · created ${when(t.created_at)} · updated ${when(t.updated_at)}`)
   );

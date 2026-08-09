@@ -91,9 +91,32 @@ db.exec(`
 function addColumn(table, name, decl) {
   const have = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === name);
   if (!have) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
+  return !have;
 }
 addColumn('tasks', 'started_at', 'TEXT');
 addColumn('tasks', 'finished_at', 'TEXT');
+addColumn('tasks', 'number', 'INTEGER');
+
+/** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
+db.exec(`
+  UPDATE tasks SET number = (
+    SELECT COUNT(*) FROM tasks older
+    WHERE older.project_id = tasks.project_id AND older.id <= tasks.id
+  )
+  WHERE number IS NULL
+`);
+
+/**
+ * The next number is counted out here rather than from the tasks still present, so deleting the most
+ * recent task retires its number instead of handing it to the next one. A number a human has used —
+ * in a note, a commit message, "run #7" — should never come to mean a different task.
+ */
+if (addColumn('projects', 'next_task_number', 'INTEGER NOT NULL DEFAULT 1')) {
+  db.exec(`
+    UPDATE projects SET next_task_number =
+      COALESCE((SELECT MAX(number) + 1 FROM tasks WHERE tasks.project_id = projects.id), 1)
+  `);
+}
 
 /**
  * Every write in this file lands through a prepared statement's run(), so hooking it here is the one
@@ -261,9 +284,12 @@ const tasks = {
     return list;
   },
   create({ project_id, title, description = '', status = 'ready', tags = [] }) {
+    const { next_task_number: number } = q('SELECT next_task_number FROM projects WHERE id = ?')
+      .get(project_id);
+    q('UPDATE projects SET next_task_number = next_task_number + 1 WHERE id = ?').run(project_id);
     const { lastInsertRowid } = q(
-      'INSERT INTO tasks (project_id, title, description, status) VALUES (?, ?, ?, ?)'
-    ).run(project_id, title, description, status);
+      'INSERT INTO tasks (project_id, number, title, description, status) VALUES (?, ?, ?, ?, ?)'
+    ).run(project_id, number, title, description, status);
     const id = Number(lastInsertRowid);
     tasks.setTags(id, tags);
     return tasks.get(id);

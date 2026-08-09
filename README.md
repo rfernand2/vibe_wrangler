@@ -23,7 +23,9 @@ Projects  ──▶  Tasks  ──▶  Comments
 ## Features
 
 - **Projects** — create / edit / delete. Each project points at a working directory on disk (that's where the agent runs).
-- **Tasks** — create / edit / delete, grouped and filterable by status.
+- **Tasks** — create / edit / delete, grouped and filterable by status. Each is numbered from `#1`
+  within its project. A number is retired when its task is deleted, so it never comes to mean
+  something else later.
 - **Tags** — label tasks with anything you like (`bug`, `backend`, `v2`). Tags are normalized (trimmed,
   lower-cased, de-duplicated) so `Backend` and `backend ` are the same tag.
 - **Right-click a task** to toggle review tags on and off without opening it — `needs review`,

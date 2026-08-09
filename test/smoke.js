@@ -81,6 +81,10 @@ async function main() {
   })).body;
   ok('creates a task with a user-defined status');
 
+  assert.equal(t1.number, 1);
+  assert.equal(t2.number, 2);
+  ok('numbers tasks within their project');
+
   const counts = (await call('GET', '/api/projects')).body[0];
   assert.equal(counts.task_count, 2);
   assert.equal(counts.ready_count, 1);
@@ -101,7 +105,16 @@ async function main() {
   const t3 = (await call('POST', `/api/projects/${other.id}/tasks`, {
     title: 'Task in another project', tags: 'bug, ui',
   })).body;
+  assert.equal(t3.number, 1, 'each project counts from one');
   ok('creates a tagged task in a second project');
+
+  const gap = (await call('POST', `/api/projects/${other.id}/tasks`, { title: 'Doomed' })).body;
+  assert.equal(gap.number, 2);
+  await call('DELETE', `/api/tasks/${gap.id}`);
+  const afterGap = (await call('POST', `/api/projects/${other.id}/tasks`, { title: 'Next' })).body;
+  assert.equal(afterGap.number, 3, 'a deleted number is retired, not handed out again');
+  await call('DELETE', `/api/tasks/${afterGap.id}`);
+  ok('numbers are never reused');
 
   const tags = (await call('GET', '/api/tags')).body;
   assert.deepEqual(tags, [

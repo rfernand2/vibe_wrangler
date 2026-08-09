@@ -197,6 +197,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .disclosure-gap { flex: 0 0 auto; width: 30px; }
 .task-main { flex: 1; min-width: 0; }
 .task-title { font-weight: 600; }
+.task-number { margin-right: 7px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .task-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .pill {
