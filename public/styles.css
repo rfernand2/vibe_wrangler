@@ -330,6 +330,41 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .comment-form { display: grid; gap: 8px; justify-items: end; }
 .comment-form textarea { width: 100%; }
 
+/* ---------- Right-click tag menu ---------- */
+.menu {
+  position: fixed;
+  z-index: 15;
+  min-width: 210px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  display: grid;
+  gap: 3px;
+}
+/* Solid at rest like every other button, so the whole row reads as a target. */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+.menu-item:hover { background: #2a2f3a; border-color: #3a4150; }
+.menu-item.on { border-color: var(--accent); background: #22314d; }
+.menu-mark { flex: 0 0 auto; width: 13px; color: var(--accent); }
+.menu-text { text-transform: uppercase; font-size: 12px; letter-spacing: .04em; }
+.menu-add .menu-text { text-transform: none; letter-spacing: 0; color: var(--muted); }
+.menu-sep { height: 1px; background: var(--line); margin: 3px 1px; }
+
 .toast {
   position: fixed;
   bottom: 18px;

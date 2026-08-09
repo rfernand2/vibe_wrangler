@@ -74,6 +74,11 @@ db.exec(`
     ended_at   TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS quick_tags (
+    tag        TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_runs_open ON agent_runs(ended_at);
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
@@ -342,6 +347,30 @@ const runs = {
 
 const BUILTIN_STATUSES = ['ready', 'active', 'completed'];
 
+/** Offered on every task's right-click menu. Stored lower-case like any other tag. */
+const BUILTIN_QUICK_TAGS = ['needs review', 'reviewed', 'verified'];
+
+const quickTags = {
+  /**
+   * Unlike the tag filters, this list is not derived from the tags in use: a tag the user adds here
+   * has to keep appearing on the menu even when no task currently carries it.
+   */
+  list() {
+    const custom = q('SELECT tag FROM quick_tags ORDER BY tag').all()
+      .map((r) => r.tag)
+      .filter((t) => !BUILTIN_QUICK_TAGS.includes(t));
+    return { builtin: BUILTIN_QUICK_TAGS, custom };
+  },
+  add(input) {
+    const [tag] = normalizeTags(input);
+    if (!tag) return null;
+    if (!BUILTIN_QUICK_TAGS.includes(tag)) {
+      q('INSERT OR IGNORE INTO quick_tags (tag) VALUES (?)').run(tag);
+    }
+    return tag;
+  },
+};
+
 function allTags() {
   return q(`
     SELECT tt.tag, COUNT(*) AS count
@@ -359,6 +388,6 @@ function allStatuses() {
 }
 
 module.exports = {
-  db, projects, tasks, comments, checklist, runs,
-  allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, DB_PATH,
+  db, projects, tasks, comments, checklist, runs, quickTags,
+  allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, BUILTIN_QUICK_TAGS, DB_PATH,
 };

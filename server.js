@@ -3,7 +3,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { projects, tasks, comments, allStatuses, allTags } = require('./db');
+const { projects, tasks, comments, allStatuses, allTags, quickTags } = require('./db');
 const agent = require('./agent');
 const events = require('./events');
 
@@ -71,6 +71,17 @@ async function api(req, res, url) {
 
   // /api/tags
   if (a === 'tags' && method === 'GET') return json(res, 200, allTags());
+
+  // /api/quick-tags — the set offered on a task's right-click menu
+  if (a === 'quick-tags') {
+    if (method === 'GET') return json(res, 200, quickTags.list());
+    if (method === 'POST') {
+      const tag = quickTags.add(body.tag);
+      if (!tag) return json(res, 400, { error: 'Tag cannot be empty' });
+      // The tag comes back normalised, so the caller can apply it without guessing at the rules.
+      return json(res, 201, { tag, ...quickTags.list() });
+    }
+  }
 
   // /api/config
   if (a === 'config' && method === 'GET') {

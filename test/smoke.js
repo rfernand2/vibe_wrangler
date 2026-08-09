@@ -145,6 +145,31 @@ async function main() {
     'tags disappear with their task');
   ok('deleting a task clears its tags');
 
+  // --- quick tags: the set offered on a task's right-click menu ---
+  const quick = (await call('GET', '/api/quick-tags')).body;
+  assert.deepEqual(quick, { builtin: ['needs review', 'reviewed', 'verified'], custom: [] });
+  ok('offers the three review tags out of the box');
+
+  const added = (await call('POST', '/api/quick-tags', { tag: '  Needs  Rework ' })).body;
+  assert.equal(added.tag, 'needs rework', 'the tag comes back normalized');
+  assert.deepEqual(added.custom, ['needs rework']);
+  ok('a custom tag joins the set, normalized like any other tag');
+
+  await call('POST', '/api/quick-tags', { tag: 'needs rework' });
+  await call('POST', '/api/quick-tags', { tag: 'VERIFIED' });
+  const again = (await call('GET', '/api/quick-tags')).body;
+  assert.deepEqual(again.custom, ['needs rework'], 'no duplicates, and builtins are not re-added');
+  ok('adding a tag twice is harmless');
+
+  assert.equal((await call('POST', '/api/quick-tags', { tag: '   ' })).status, 400);
+  ok('rejects an empty custom tag');
+
+  await call('PUT', `/api/tasks/${t1.id}`, { tags: ['needs rework'] });
+  await call('PUT', `/api/tasks/${t1.id}`, { tags: [] });
+  assert.deepEqual((await call('GET', '/api/quick-tags')).body.custom, ['needs rework'],
+    'the menu keeps a tag no task carries any more');
+  ok('a custom tag outlives the tasks that used it');
+
   await call('DELETE', `/api/projects/${other.id}`);
 
   // --- comments ---

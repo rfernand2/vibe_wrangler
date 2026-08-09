@@ -26,6 +26,9 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Tasks** — create / edit / delete, grouped and filterable by status.
 - **Tags** — label tasks with anything you like (`bug`, `backend`, `v2`). Tags are normalized (trimmed,
   lower-cased, de-duplicated) so `Backend` and `backend ` are the same tag.
+- **Right-click a task** to toggle review tags on and off without opening it — `needs review`,
+  `reviewed` and `verified` to begin with. **New tag…** adds your own, and it stays on the menu for
+  every task from then on, whether or not anything currently carries it.
 - **All tasks view** — one board showing every task across every project, filterable by tag *and* status.
   Useful for "show me everything tagged `release` no matter which repo it lives in".
 - **Statuses**
@@ -270,6 +273,8 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 | `GET` | `/api/projects/:id/tasks?status=&tag=` | List a project's tasks, optionally filtered |
 | `GET` | `/api/tasks?status=&tag=` | List tasks across every project |
 | `GET` | `/api/tags` | Every tag in use, with task counts |
+| `GET` | `/api/quick-tags` | The tag set offered on a task's right-click menu |
+| `POST` | `/api/quick-tags` | Add a tag to that set |
 | `POST` | `/api/projects/:id/tasks` | Create a task |
 | `GET` | `/api/tasks/:id` | Task detail with comments |
 | `PUT` | `/api/tasks/:id` | Update a task |

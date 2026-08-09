@@ -12,6 +12,7 @@ const state = {
   tags: [],
   task: null,
   statuses: { builtin: ['ready', 'active', 'completed'], custom: [] },
+  quickTags: { builtin: [], custom: [] },
   checklistOpen: new Map(),
 };
 
@@ -176,6 +177,10 @@ async function loadTags() {
   }
 }
 
+async function loadQuickTags() {
+  state.quickTags = await api('GET', '/api/quick-tags');
+}
+
 function renderTagFilters() {
   const present = [...new Set(state.tasks.flatMap((t) => t.tags))].sort();
   $('tagLabel').hidden = present.length === 0;
@@ -270,6 +275,7 @@ async function loadTasks() {
 
   await loadStatuses();
   await loadTags();
+  await loadQuickTags();
   renderFilters();
   renderTagFilters();
   renderTasks();
@@ -350,10 +356,75 @@ function renderTasks() {
       main.append(tagRow);
     }
 
+    li.oncontextmenu = (e) => { e.preventDefault(); openTagMenu(e, t); };
+
     li.append(gizmo, pill, main);
     list.append(li);
   }
 }
+
+/* ---------- Tag menu ---------- */
+
+const closeTagMenu = () => { $('tagMenu').hidden = true; };
+
+function openTagMenu(e, task) {
+  const menu = $('tagMenu');
+  menu.replaceChildren();
+
+  const row = (label, on, onPick) => {
+    const b = document.createElement('button');
+    b.className = 'menu-item' + (on ? ' on' : '');
+    b.setAttribute('role', 'menuitemcheckbox');
+    b.setAttribute('aria-checked', String(on));
+    const mark = document.createElement('span');
+    mark.className = 'menu-mark';
+    mark.textContent = on ? '\u2713' : '';
+    const text = document.createElement('span');
+    text.className = 'menu-text';
+    text.textContent = label;
+    b.append(mark, text);
+    b.onclick = run(async () => { closeTagMenu(); await onPick(); });
+    return b;
+  };
+
+  for (const tag of [...state.quickTags.builtin, ...state.quickTags.custom]) {
+    menu.append(row(tag, task.tags.includes(tag), () => toggleTaskTag(task, tag)));
+  }
+
+  const sep = document.createElement('div');
+  sep.className = 'menu-sep';
+  const add = row('New tag\u2026', false, async () => {
+    const entered = prompt('Tag to add to this task (it joins the menu for every task):');
+    if (!entered?.trim()) return;
+    const { tag, builtin, custom } = await api('POST', '/api/quick-tags', { tag: entered });
+    state.quickTags = { builtin, custom };
+    if (!task.tags.includes(tag)) await toggleTaskTag(task, tag);
+  });
+  add.classList.add('menu-add');
+  menu.append(sep, add);
+
+  // Rendered off-screen first so the size is known before it is clamped into the viewport.
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  menu.hidden = false;
+  const { width, height } = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(e.clientX, window.innerWidth - width - 8)}px`;
+  menu.style.top = `${Math.min(e.clientY, window.innerHeight - height - 8)}px`;
+}
+
+async function toggleTaskTag(task, tag) {
+  const tags = task.tags.includes(tag)
+    ? task.tags.filter((t) => t !== tag)
+    : [...task.tags, tag];
+  await api('PUT', `/api/tasks/${task.id}`, { tags });
+  await loadTasks();
+  if (state.task?.id === task.id) await refreshTask();
+}
+
+document.addEventListener('click', (e) => { if (!e.target.closest('#tagMenu')) closeTagMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTagMenu(); });
+window.addEventListener('resize', closeTagMenu);
+window.addEventListener('scroll', closeTagMenu, true);
 
 /* ---------- Task drawer ---------- */
 
