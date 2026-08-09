@@ -12,6 +12,7 @@ const state = {
   tags: [],
   task: null,
   statuses: { builtin: ['ready', 'active', 'completed'], custom: [] },
+  showChecklists: localStorage.getItem('showChecklists') === '1',
 };
 
 let poll = null;
@@ -44,10 +45,52 @@ function statusClass(s) {
   return ['ready', 'active', 'completed', 'failed'].includes(s) ? s : '';
 }
 
+/** SQLite hands back naive UTC ("2026-08-09 14:03:11"), so pin the zone before parsing. */
+function parseTs(ts) {
+  if (!ts) return null;
+  const d = new Date(String(ts).replace(' ', 'T') + 'Z');
+  return isNaN(d) ? null : d;
+}
+
 function when(ts) {
-  if (!ts) return '';
-  const d = new Date(ts.replace(' ', 'T') + 'Z');
-  return isNaN(d) ? ts : d.toLocaleString();
+  const d = parseTs(ts);
+  return d ? d.toLocaleString() : (ts || '');
+}
+
+function fmtElapsed(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+/** Live element for active runs, frozen total once the run has ended. */
+function elapsedEl(task) {
+  const started = parseTs(task.started_at);
+  if (!started) return null;
+  const running = task.status === 'active';
+  const finished = parseTs(task.finished_at);
+  if (!running && !finished) return null;
+
+  const el = document.createElement('span');
+  el.className = 'elapsed' + (running ? ' running' : '');
+  if (running) {
+    el.dataset.since = started.toISOString();
+    el.textContent = fmtElapsed(Date.now() - started);
+  } else {
+    el.textContent = fmtElapsed(finished - started);
+  }
+  return el;
+}
+
+function tickElapsed() {
+  const now = Date.now();
+  for (const el of document.querySelectorAll('.elapsed[data-since]')) {
+    el.textContent = fmtElapsed(now - new Date(el.dataset.since));
+  }
 }
 
 /* ---------- Projects ---------- */
@@ -126,7 +169,7 @@ async function loadTags() {
 
 function renderTagFilters() {
   const present = [...new Set(state.tasks.flatMap((t) => t.tags))].sort();
-  $('tagToolbar').hidden = present.length === 0;
+  $('tagLabel').hidden = present.length === 0;
   const box = $('tagFilters');
   box.replaceChildren();
   if (!present.length) return;
@@ -148,6 +191,26 @@ function renderTagFilters() {
     box.append(mk(tag, tag, state.tasks.filter((t) => t.tags.includes(tag)).length));
   }
 }
+
+function checklistEl(items, mini) {
+  const ul = document.createElement('ul');
+  ul.className = 'checklist' + (mini ? ' checklist-mini' : '');
+  for (const item of items) {
+    const li = document.createElement('li');
+    li.className = item.done ? 'done' : '';
+    const mark = document.createElement('span');
+    mark.className = 'check-mark';
+    mark.textContent = item.done ? '\u2713' : '\u25cb';
+    const text = document.createElement('span');
+    text.className = 'check-text';
+    text.textContent = item.text;
+    li.append(mark, text);
+    ul.append(li);
+  }
+  return ul;
+}
+
+const checklistProgress = (items) => `${items.filter((i) => i.done).length}/${items.length}`;
 
 const taggedTasks = () =>
   state.tagFilter ? state.tasks.filter((t) => t.tags.includes(state.tagFilter)) : state.tasks;
@@ -232,9 +295,21 @@ function renderTasks() {
     title.textContent = t.title;
     const sub = document.createElement('div');
     sub.className = 'task-sub';
-    const where = state.view === 'all' ? `${t.project_name} · ` : '';
-    sub.textContent = `${where}${t.comment_count} comment${t.comment_count === 1 ? '' : 's'} · updated ${when(t.updated_at)}`;
+    const parts = [
+      state.view === 'all' ? t.project_name : null,
+      `${t.comment_count} comment${t.comment_count === 1 ? '' : 's'}`,
+      t.checklist.length ? `checklist ${checklistProgress(t.checklist)}` : null,
+      `updated ${when(t.updated_at)}`,
+    ].filter(Boolean);
+    sub.textContent = parts.join(' · ');
+
+    const elapsed = elapsedEl(t);
+    if (elapsed) {
+      sub.append(document.createTextNode(t.status === 'active' ? ' · running ' : ' · took '), elapsed);
+    }
     main.append(title, sub);
+
+    if (state.showChecklists && t.checklist.length) main.append(checklistEl(t.checklist, true));
 
     if (t.tags.length) {
       const tagRow = document.createElement('div');
@@ -281,8 +356,20 @@ function renderTask() {
   $('detailStatus').className = `pill ${statusClass(t.status)}`;
   $('detailStatus').textContent = t.status;
   $('detailTitle').textContent = t.title;
-  $('detailMeta').textContent = `${t.project_name} · created ${when(t.created_at)} · updated ${when(t.updated_at)}`;
+  $('detailMeta').replaceChildren(
+    document.createTextNode(`${t.project_name} · created ${when(t.created_at)} · updated ${when(t.updated_at)}`)
+  );
+  const elapsed = elapsedEl(t);
+  if (elapsed) {
+    $('detailMeta').append(document.createTextNode(t.status === 'active' ? ' · running ' : ' · took '), elapsed);
+  }
   $('detailDesc').textContent = t.description || '';
+
+  $('detailChecklistBlock').hidden = !t.checklist.length;
+  if (t.checklist.length) {
+    $('detailChecklistCount').textContent = checklistProgress(t.checklist);
+    $('detailChecklist').replaceWith(Object.assign(checklistEl(t.checklist, false), { id: 'detailChecklist' }));
+  }
 
   const tagRow = $('detailTags');
   tagRow.replaceChildren();
@@ -369,6 +456,18 @@ document.addEventListener('click', (e) => {
 });
 
 $('allTasksBtn').onclick = selectAllTasks;
+
+function renderChecklistToggle() {
+  const btn = $('checklistToggle');
+  btn.classList.toggle('active', state.showChecklists);
+  btn.textContent = state.showChecklists ? 'Hide checklists' : 'Show checklists';
+}
+$('checklistToggle').onclick = () => {
+  state.showChecklists = !state.showChecklists;
+  localStorage.setItem('showChecklists', state.showChecklists ? '1' : '0');
+  renderChecklistToggle();
+  renderTasks();
+};
 
 let editingProject = null;
 $('newProjectBtn').onclick = () => {
@@ -514,7 +613,9 @@ $('refreshBtn').onclick = run(async () => {
 run(async () => {
   const cfg = await api('GET', '/api/config');
   $('agentInfo').textContent = `agent: ${cfg.claudeBin} · ${cfg.model}`;
+  renderChecklistToggle();
   await loadProjects();
   await loadTasks();
   startPolling();
+  setInterval(tickElapsed, 1000);
 })();

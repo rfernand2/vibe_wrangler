@@ -54,9 +54,11 @@
         <button class="btn btn-primary" id="newTaskBtn">New task</button>
       </div>
 
-      <div class="toolbar tag-toolbar" id="tagToolbar">
-        <span class="filter-label">Tags</span>
+      <div class="toolbar tag-toolbar" id="viewToolbar">
+        <span class="filter-label" id="tagLabel">Tags</span>
         <div class="filters" id="tagFilters"></div>
+        <span class="spacer"></span>
+        <button class="btn btn-sm" id="checklistToggle">Checklists</button>
       </div>
 
       <ul class="task-list" id="taskList"></ul>
@@ -138,6 +140,11 @@
       <button class="btn" id="detailEditBtn">Edit</button>
       <button class="btn" id="detailLogBtn">Raw log</button>
       <button class="btn btn-danger" id="detailDeleteBtn">Delete</button>
+    </div>
+
+    <div id="detailChecklistBlock" hidden>
+      <h4>Checklist <span class="muted" id="detailChecklistCount"></span></h4>
+      <ul class="checklist" id="detailChecklist"></ul>
     </div>
 
     <h4>Comments</h4>

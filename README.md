@@ -27,6 +27,10 @@ Projects  ──▶  Tasks  ──▶  Comments
   - **anything else** (`blocked`, `on hold`, `idea`, …) — user-defined; the agent ignores these
 - **Comments** — an append-only conversation per task. The agent writes progress notes while it works and a
   summary when it finishes. You can add your own comments too (review notes, test results, follow-ups).
+- **Checklists** — the agent breaks each task into sub-tasks up front and ticks them off as it goes, so you
+  can see how far through it is rather than just "active". Shown on the task detail, and optionally inline
+  on the task list via the **Show checklists** toggle.
+- **Run timer** — a live elapsed clock while a task is active, and the final duration once it finishes.
 - **Raw logs** — the full technical transcript of each agent run is saved to disk and linked from the task,
   so it's there when you need it and out of the way when you don't.
 - **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
@@ -68,7 +72,17 @@ node server.js
 3. Set the task to **ready** and hit **Run** (or **Run all ready** on the project).
 4. The app flips the task to **active** and launches:
    `claude -p "<task prompt>" --output-format stream-json` in the project directory.
-5. While it works, any line the agent emits starting with `NOTE:` is captured as a **user-level comment**.
+5. While it works, the app watches the agent's output for three prefixes and drops everything else:
+
+   | Line | Becomes |
+   | --- | --- |
+   | `NOTE: <sentence>` | a user-level comment on the task |
+   | `PLAN: <sub-task>` | a new checklist item |
+   | `DONE: <sub-task>` | that checklist item, ticked off |
+
+   `DONE:` matches on words rather than exact text, so the agent rewording an item slightly still ticks
+   the right box. The checklist is cleared at the start of each run, so it always describes the run you
+   are looking at.
 6. When it's done, the final summary is saved as a comment and the task flips to **completed** (or back to
    `ready` with an error comment if the run failed).
 

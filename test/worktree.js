@@ -84,6 +84,10 @@ async function main() {
   assert.ok(fs.existsSync(path.join(process.env.LLM_TASKS_WORKTREES, `p${p1.id}-task-${t2.id}`)));
   ok('each task gets its own worktree');
 
+  assert.ok(tasks.get(t1.id).started_at);
+  assert.equal(tasks.get(t1.id).finished_at, null);
+  ok('the clock starts when a task goes active');
+
   assert.equal(read(repo, 'a.txt'), 'base\n');
   ok('the main checkout is untouched while agents work');
 
@@ -105,6 +109,19 @@ async function main() {
 
   assert.match(bodies(t1.id), /merged into main/);
   ok('the thread says where the work landed');
+
+  const list1 = tasks.get(t1.id).checklist;
+  assert.deepEqual(list1.map((i) => i.text), ['Read the code', 'Make the change', 'Check it works']);
+  assert.deepEqual(list1.map((i) => i.done), [true, false, false]);
+  ok('PLAN lines build a checklist and DONE ticks the matching item off');
+
+  assert.equal(bodies(t1.id).includes('PLAN:'), false);
+  ok('checklist directives do not leak into the comment thread');
+
+  const timed = tasks.get(t1.id);
+  assert.ok(timed.started_at && timed.finished_at);
+  assert.ok(new Date(timed.finished_at + 'Z') >= new Date(timed.started_at + 'Z'));
+  ok('a completed run records when it started and finished');
 
   // --- two tasks editing the same file: the loser must resolve, not clobber ---
   const repo2 = makeRepo('repo2', { 'shared.txt': 'base\n' });

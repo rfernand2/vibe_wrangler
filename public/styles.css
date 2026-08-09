@@ -149,7 +149,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .tag-toolbar { margin: 0 0 14px; }
 .filter-label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.filters button.active { border-color: var(--accent); background: #22314d; }
+.filters button.active,
+.btn.active { border-color: var(--accent); background: #22314d; }
 
 /* Tags */
 .tag {
@@ -171,7 +172,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .task-item {
   display: flex;
-  align-items: center;
+  /* Rows grow downwards when a checklist is expanded, so pin the pill to the title line. */
+  align-items: flex-start;
   gap: 12px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -201,8 +203,21 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .pill.completed { color: var(--completed); border-color: #1f6b3f; background: #0f2a1c; }
 .pill.failed { color: var(--failed); border-color: #7a2c2c; background: #2c1414; }
 
+/* ---------- Checklists ---------- */
+.checklist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.checklist li { display: flex; align-items: baseline; gap: 8px; }
+.check-mark { flex: 0 0 auto; width: 13px; color: var(--muted); font-size: 12px; }
+.checklist li.done .check-mark { color: var(--completed); }
+.checklist li.done .check-text { color: var(--muted); text-decoration: line-through; }
+.checklist-mini { font-size: 12.5px; margin-top: 6px; }
+.drawer-body .checklist { margin: 8px 0 16px; }
+
+.elapsed { font-variant-numeric: tabular-nums; }
+.elapsed.running { color: var(--active); }
+
 .spinner {
   width: 12px; height: 12px;
+  margin-top: 4px;
   border: 2px solid rgba(255,255,255,.25);
   border-top-color: var(--active);
   border-radius: 50%;

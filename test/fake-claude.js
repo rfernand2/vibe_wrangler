@@ -13,7 +13,8 @@ process.stdin.on('end', () => {
 });
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
-function note(text) { emit({ type: 'assistant', message: { content: [{ type: 'text', text: `NOTE: ${text}` }] } }); }
+function say(text) { emit({ type: 'assistant', message: { content: [{ type: 'text', text }] } }); }
+function note(text) { say(`NOTE: ${text}`); }
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -62,6 +63,12 @@ function run() {
     emit({ type: 'result', result: 'Resolved the conflict.' });
     return;
   }
+
+  say('PLAN: Read the code\nPLAN: Make the change\nPLAN: Check it works');
+  say('DONE: read the CODE');
+
+  const slow = /^FAKE_SLEEP\s+(\d+)$/m.exec(prompt);
+  if (slow) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(slow[1]));
 
   let edits = 0;
   for (const line of prompt.split(/\r?\n/)) {

@@ -3,7 +3,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tasks, comments, projects } = require('./db');
+const { tasks, comments, projects, checklist } = require('./db');
 const git = require('./git');
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
@@ -53,6 +53,17 @@ function buildPrompt(task, project, history, iso) {
     '  NOTE: Fixed it and added a test covering timezones either side of midnight.',
     'Emit 2-5 of these over the course of the task. Do not put code, file paths, or stack traces in a NOTE.',
     'Your final message should be a short summary of what changed and anything the human should check or test.',
+    '',
+    '## Checklist protocol',
+    'Before you touch anything, break the task into 3-8 concrete sub-tasks and emit one `PLAN:` line each:',
+    '  PLAN: Reproduce the wrong-day bug in the date parser',
+    '  PLAN: Fix the timezone handling',
+    '  PLAN: Add tests either side of midnight',
+    'The moment a sub-task is finished, echo it back with `DONE:` and the same wording:',
+    '  DONE: Fix the timezone handling',
+    'Emit the whole plan up front so the human can see where you are going, then tick items off as you go',
+    'rather than all at the end. Keep each item to one short line a non-technical reader would understand.',
+    'If the plan changes, emit a `PLAN:` line for the new sub-task — earlier items stay as they are.',
     '',
     '## Project',
     `Name: ${project.name}`,
@@ -105,19 +116,21 @@ function buildConflictPrompt(task, iso, files) {
   ].join('\n');
 }
 
-function extractNotes(text) {
+const DIRECTIVE = /^\s*(?:[-*]\s*)?(NOTE|PLAN|DONE):\s*(.+)$/;
+
+function extractDirectives(text) {
   const out = [];
   for (const raw of String(text).split(/\r?\n/)) {
-    const m = /^\s*(?:[-*]\s*)?NOTE:\s*(.+)$/.exec(raw);
-    if (m && m[1].trim()) out.push(m[1].trim());
+    const m = DIRECTIVE.exec(raw);
+    if (m && m[2].trim()) out.push({ kind: m[1], text: m[2].trim() });
   }
   return out;
 }
 
-function stripNotes(text) {
+function stripDirectives(text) {
   return String(text)
     .split(/\r?\n/)
-    .filter((l) => !/^\s*(?:[-*]\s*)?NOTE:\s*/.test(l))
+    .filter((l) => !DIRECTIVE.test(l))
     .join('\n')
     .trim();
 }
@@ -191,10 +204,12 @@ function spawnAgent({ taskId, cwd, prompt, log, onDone }) {
       if (evt.type === 'assistant' && evt.message?.content) {
         for (const block of evt.message.content) {
           if (block.type !== 'text' || !block.text) continue;
-          for (const note of extractNotes(block.text)) {
-            if (note === lastNote) continue;
-            lastNote = note;
-            comments.create({ task_id: taskId, author: 'agent', body: note });
+          for (const d of extractDirectives(block.text)) {
+            if (d.kind === 'PLAN') { checklist.add(taskId, d.text); continue; }
+            if (d.kind === 'DONE') { checklist.markDone(taskId, d.text); continue; }
+            if (d.text === lastNote) continue;
+            lastNote = d.text;
+            comments.create({ task_id: taskId, author: 'agent', body: d.text });
           }
         }
       } else if (evt.type === 'result') {
@@ -215,7 +230,7 @@ function spawnAgent({ taskId, cwd, prompt, log, onDone }) {
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 500);
       return settle({ status: 'error', message: `Agent exited with an error${detail ? `: ${detail}` : ` (exit code ${code})`}.` });
     }
-    settle({ status: 'ok', summary: stripNotes(finalText), sawNote: Boolean(lastNote) });
+    settle({ status: 'ok', summary: stripDirectives(finalText), sawNote: Boolean(lastNote) });
   });
 }
 
@@ -308,6 +323,8 @@ function runTask(taskId) {
   const log = fs.createWriteStream(logFile, { flags: 'a' });
   log.write(`# agent run for task ${taskId} at ${new Date().toISOString()}\n# cwd: ${cwd}\n\n${prompt}\n\n---\n`);
 
+  // The checklist describes the run in progress, so a re-run starts from a blank one.
+  checklist.clear(taskId);
   tasks.setStatus(taskId, 'active');
   tasks.setLogFile(taskId, path.basename(logFile));
   comments.create({
