@@ -1,6 +1,12 @@
 # Vibe Wrangler
 
-A lightweight web app for managing **projects** and **tasks** that a **Claude Code agent** works on for you.
+A lightweight web app for managing **projects** and **tasks** that a **coding-agent CLI** works on for you.
+
+It is built as a general harness for driving agent CLIs — the app owns the board, the git isolation, the
+process supervision and the progress reporting, and treats the agent itself as a swappable command it
+shells out to. **Claude Code is the first supported CLI**, and currently the only one: the app speaks its
+`--output-format stream-json` transcript. Adding another means teaching `agent.js` that CLI's flags and
+output format; nothing above it needs to change.
 
 The point: you keep a clean, human-readable board of work. The agent picks up tasks, does the work, and
 reports back in short, user-level comments — you never have to wade through tool calls, diffs, or token noise
@@ -43,34 +49,45 @@ Projects  ──▶  Tasks  ──▶  Comments
   the server pushes a notification whenever anything changes and every open tab refetches.
 - **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
 
-## Why the Claude CLI (not the API)
+## Why a CLI (not the API)
 
 The agent is invoked by shelling out to the `claude` CLI in non-interactive (`-p`) mode. That means it uses
 **your existing Claude subscription login** — there is no `ANTHROPIC_API_KEY` to manage and no per-token billing.
+It also keeps the integration surface tiny: an agent is a command, a working directory and a stream of output,
+which is why swapping in a different CLI is a contained change rather than a rewrite.
 
 ## Requirements
 
 - **Node.js 22+** (uses the built-in `node:sqlite` module — no `npm install`, zero dependencies)
-- **Claude Code CLI** on your `PATH`, already logged in (`claude` → `/login`)
+- **An agent CLI** on your `PATH` — today that means the **Claude Code CLI**, already logged in
+  (`claude` → `/login`)
 
 ## Quick start
+
+> ⚠️ **Before you start:** the agent runs with `--dangerously-skip-permissions` and will edit files and run
+> commands in your project directory without asking. Read [Permissions](#permissions-read-this) first.
+
+Windows:
 
 ```bat
 run.bat
 ```
 
-Then open <http://localhost:3000>.
+macOS / Linux:
 
-`run.bat` starts the server and opens your browser. To use a different port:
+```sh
+./run.sh
+```
+
+Either script checks your prerequisites, starts the server and opens <http://localhost:3000> in your browser.
+To use a different port:
 
 ```bat
 set PORT=4000 && run.bat
 ```
 
-On macOS / Linux:
-
 ```sh
-node server.js
+PORT=4000 ./run.sh
 ```
 
 ## How a task gets worked
@@ -175,16 +192,38 @@ The agent is invoked as:
 claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <AGENT_MODEL>
 ```
 
-> **Note on permissions:** the agent runs with `--dangerously-skip-permissions` so it can edit files, run
-> builds, and run tests without a human at the keyboard — there is no terminal attached to approve prompts.
-> Only point projects at directories you're willing to let it change.
+## Permissions (read this)
+
+**The agent runs with `--dangerously-skip-permissions`.** Every action a Claude Code session would normally
+stop and ask you to approve — editing files, deleting them, running builds, running arbitrary shell commands,
+installing packages, making network requests — happens automatically, with no prompt and no undo.
+
+This is not a setting you can turn off here; it is the premise of the tool. The whole point is that tasks run
+unattended while you are doing something else, and there is no terminal attached for anyone to approve a
+prompt on. An agent blocked on a confirmation nobody will ever answer is an agent that hangs forever.
+
+What that means in practice:
+
+- **Only point projects at directories you are willing to lose.** Treat every project directory as
+  disposable — committed, pushed, and backed up somewhere the agent cannot reach.
+- **The blast radius is not limited to the project directory.** The agent runs shell commands as *you*, with
+  your user's permissions and your credentials. It can reach anything you can: other repos, your home
+  directory, your cloud CLI sessions, the internet.
+- **Task descriptions are instructions to a process that will act on them.** Anything the agent reads —
+  a task description, a file in the repo, a web page it fetches, a dependency's README — can influence what
+  it does next. Don't paste in text you haven't read from a source you don't trust.
+- **Run it somewhere you can afford to be wrong.** A VM, a container, or a dedicated machine is a far better
+  home for this than your primary workstation.
+
+Git isolation ([above](#running-several-tasks-at-once)) protects your *working copy* from concurrent agents.
+It is not a security boundary and does nothing to contain a command the agent chooses to run.
 
 ## Project layout
 
 ```
 server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
-agent.js           Spawns the Claude CLI, parses its output into comments
+agent.js           Spawns the agent CLI, parses its output into comments (the CLI-specific seam)
 git.js             Worktree / branch / merge plumbing for concurrent tasks
 proc.js            Liveness, identity and tree-kill for agent processes
 events.js          Server-sent change notifications that keep open tabs current
@@ -193,6 +232,7 @@ test/smoke.js      End-to-end API test against a throwaway database
 test/worktree.js   Two-agents-one-repo concurrency and merge-conflict test
 data/              SQLite database, raw agent logs, task worktrees (git-ignored)
 run.bat            Start the app on Windows
+run.sh             Start the app on macOS / Linux
 ```
 
 ## Tests
