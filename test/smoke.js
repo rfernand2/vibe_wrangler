@@ -85,6 +85,14 @@ async function main() {
   assert.equal(t2.number, 2);
   ok('numbers tasks within their project');
 
+  // Touching the older task must not float it to the top — the number is what orders the board.
+  await call('PUT', `/api/tasks/${t1.id}`, { title: 'First task' });
+  assert.deepEqual(
+    (await call('GET', `/api/projects/${proj.id}/tasks`)).body.map((t) => t.number),
+    [2, 1]
+  );
+  ok('lists tasks newest number first');
+
   const counts = (await call('GET', '/api/projects')).body[0];
   assert.equal(counts.task_count, 2);
   assert.equal(counts.ready_count, 1);
@@ -216,9 +224,9 @@ async function main() {
   }
   const afterRun = (await call('GET', `/api/tasks/${t1.id}`)).body;
   assert.equal(afterRun.status, 'failed');
-  assert.ok(afterRun.comments.some((c) => /Claude CLI/i.test(c.body)), 'explains the spawn failure');
+  assert.ok(afterRun.comments.some((c) => /Claude Code CLI/i.test(c.body)), 'explains the spawn failure');
   assert.ok(afterRun.log_file, 'records a log file');
-  ok('a missing Claude CLI fails the task with a readable message');
+  ok('a missing harness CLI fails the task with a readable message');
 
   const log = await call('GET', `/api/tasks/${t1.id}/log`);
   assert.equal(log.status, 200);
@@ -306,6 +314,80 @@ async function main() {
   ok('a write is pushed to connected clients');
 
   await reader.cancel();
+
+  // --- harnesses and settings ---
+  const harnesses = require('../harnesses');
+  const config = (await call('GET', '/api/config')).body;
+  assert.ok(config.version, 'reports its version');
+  assert.deepEqual(config.harnesses.map((h) => h.id), ['claude', 'codex']);
+  assert.ok(config.harnesses[0].models.length, 'each harness offers models');
+  ok('publishes the harness catalogue');
+
+  // These are the event shapes each CLI actually emits; the directives are read out of them.
+  const claude = harnesses.byId('claude');
+  assert.deepEqual(
+    claude.read({ type: 'assistant', message: { content: [{ type: 'text', text: 'NOTE: hi' }] } }),
+    { text: 'NOTE: hi' });
+  assert.deepEqual(
+    claude.read({ type: 'result', subtype: 'success', result: 'all done' }),
+    { done: true, text: 'all done', failed: false });
+  assert.equal(claude.read({ type: 'system' }), null);
+
+  const codex = harnesses.byId('codex');
+  assert.deepEqual(
+    codex.read({ type: 'item.completed', item: { type: 'agent_message', text: 'NOTE: hi' } }),
+    { text: 'NOTE: hi' });
+  assert.deepEqual(codex.read({ type: 'turn.completed', usage: {} }), { done: true, failed: false });
+  assert.deepEqual(codex.read({ type: 'turn.failed', error: {} }), { done: true, failed: true });
+  assert.equal(codex.read({ type: 'item.completed', item: { type: 'reasoning' } }), null);
+  ok('each harness reads its own event stream');
+
+  assert.deepEqual((await call('GET', '/api/settings')).body, { harness: 'claude', model: 'claude-opus-5' });
+  ok('defaults to the first model of the first harness');
+
+  assert.equal((await call('PUT', '/api/settings', { harness: 'nope' })).status, 400);
+  assert.equal((await call('PUT', '/api/settings', { harness: 'codex', model: 'claude-opus-5' })).status, 400);
+  ok('rejects a harness or model that does not exist');
+
+  const defaults = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
+  assert.deepEqual(defaults, { harness: 'codex', model: 'gpt-5.6-terra' });
+  assert.deepEqual((await call('GET', '/api/settings')).body, defaults);
+  ok('remembers the default harness and model');
+
+  const { tasks: taskStore } = require('../db');
+  const { forTask } = require('../agent');
+  const resolved = (id) => {
+    const r = forTask(taskStore.get(id));
+    return { harness: r.harness.id, model: r.model };
+  };
+
+  const inherits = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Inherits' })).body;
+  assert.equal(inherits.harness, null);
+  assert.deepEqual(resolved(inherits.id), defaults, 'a task with no choice follows the default');
+
+  const pinned = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'Pinned', harness: 'claude', model: 'claude-haiku-4-5-20251001',
+  })).body;
+  assert.deepEqual(resolved(pinned.id), { harness: 'claude', model: 'claude-haiku-4-5-20251001' });
+
+  // Naming only a harness must take that harness's own first model, not the default set for Codex.
+  const halfPinned = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'Half pinned', harness: 'claude',
+  })).body;
+  assert.deepEqual(resolved(halfPinned.id), { harness: 'claude', model: 'claude-opus-5' });
+  ok('a task can override the harness, the model, or both');
+
+  assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`,
+    { title: 'Bad', harness: 'codex', model: 'claude-opus-5' })).status, 400);
+  ok('rejects a task naming a model its harness does not offer');
+
+  await call('PUT', `/api/tasks/${pinned.id}`, { harness: '', model: '' });
+  assert.deepEqual(resolved(pinned.id), defaults, 'clearing the override returns it to the default');
+  await call('PUT', `/api/tasks/${pinned.id}`, { title: 'Pinned again' });
+  assert.equal(taskStore.get(pinned.id).harness, null, 'an unrelated edit leaves the choice alone');
+  ok('a task can be handed back to the default');
+
+  await call('PUT', '/api/settings', { harness: 'claude', model: 'claude-opus-5' });
 
   // --- deletes cascade ---
   assert.equal((await call('DELETE', `/api/tasks/${t2.id}`)).status, 200);

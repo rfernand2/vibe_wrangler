@@ -3,10 +3,12 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { projects, tasks, comments, allStatuses, allTags, quickTags } = require('./db');
+const { projects, tasks, comments, allStatuses, allTags, quickTags, settings } = require('./db');
 const agent = require('./agent');
 const events = require('./events');
 const attachments = require('./attachments');
+const harnesses = require('./harnesses');
+const { version } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -74,6 +76,20 @@ function withComments(task) {
   return { ...task, comments: comments.listForTask(task.id), running: agent.isRunning(task.id) };
 }
 
+/**
+ * A harness/model pair named by a client. Empty means "follow the default", which is a real choice
+ * and not an error; only a value naming something that does not exist is rejected.
+ */
+function pickHarness(body) {
+  const harness = body.harness ? harnesses.byId(body.harness) : null;
+  if (body.harness && !harness) return { error: 'Unknown harness' };
+  if (!harness) return { harness: null, model: null };
+  if (body.model && !harness.models.some((m) => m.id === body.model)) {
+    return { error: `${harness.name} does not offer that model` };
+  }
+  return { harness: harness.id, model: body.model || null };
+}
+
 async function api(req, res, url) {
   const seg = url.pathname.split('/').filter(Boolean); // ['api', ...]
   const [, a, b, c] = seg;
@@ -111,9 +127,26 @@ async function api(req, res, url) {
     }
   }
 
-  // /api/config
+  // /api/config — the facts that only change when the app itself does
   if (a === 'config' && method === 'GET') {
-    return json(res, 200, { model: agent.MODEL, claudeBin: agent.CLAUDE_BIN });
+    return json(res, 200, { version, harnesses: harnesses.catalogue() });
+  }
+
+  // /api/settings — the harness and model a task runs with unless it names its own
+  if (a === 'settings') {
+    const current = () => {
+      const { harness, model } = agent.defaults();
+      return { harness: harness.id, model };
+    };
+    if (method === 'GET') return json(res, 200, current());
+    if (method === 'PUT') {
+      if (!body.harness) return json(res, 400, { error: 'A default harness is required' });
+      const pick = pickHarness(body);
+      if (pick.error) return json(res, 400, { error: pick.error });
+      settings.set('harness', pick.harness);
+      settings.set('model', pick.model || harnesses.byId(pick.harness).models[0].id);
+      return json(res, 200, current());
+    }
   }
 
   // /api/projects...
@@ -157,12 +190,15 @@ async function api(req, res, url) {
         if (method === 'POST') {
           if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
           if (!body.title?.trim()) return json(res, 400, { error: 'Task title is required' });
+          const pick = pickHarness(body);
+          if (pick.error) return json(res, 400, { error: pick.error });
           return json(res, 201, tasks.create({
             project_id: id,
             title: body.title.trim(),
             description: body.description || '',
             status: (body.status || 'ready').trim() || 'ready',
             tags: body.tags ?? [],
+            ...pick,
           }));
         }
       }
@@ -198,6 +234,11 @@ async function api(req, res, url) {
       if (method === 'PUT') {
         if (body.title !== undefined && !body.title.trim()) {
           return json(res, 400, { error: 'Task title is required' });
+        }
+        if (body.harness !== undefined || body.model !== undefined) {
+          const pick = pickHarness(body);
+          if (pick.error) return json(res, 400, { error: pick.error });
+          Object.assign(body, pick);
         }
         const t = tasks.update(id, body);
         return t ? json(res, 200, withComments(t)) : json(res, 404, { error: 'Task not found' });
@@ -275,7 +316,8 @@ server.listen(PORT, () => {
   if (r.closed) console.log(`closed ${r.closed} stale agent run record(s)`);
   if (r.reset) console.log(`reset ${r.reset} task(s) left active by a previous run`);
   console.log(`Vibe Wrangler running at http://localhost:${PORT}`);
-  console.log(`agent: ${agent.CLAUDE_BIN} --model ${agent.MODEL} --dangerously-skip-permissions`);
+  const { harness, model } = agent.defaults();
+  console.log(`agent: ${harness.bin} ${harness.args(model).join(' ')}`);
 });
 
 module.exports = server;

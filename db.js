@@ -79,6 +79,12 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_runs_open ON agent_runs(ended_at);
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
@@ -96,6 +102,10 @@ function addColumn(table, name, decl) {
 addColumn('tasks', 'started_at', 'TEXT');
 addColumn('tasks', 'finished_at', 'TEXT');
 addColumn('tasks', 'number', 'INTEGER');
+
+/** Null on either means "whatever the default is when the task runs", not "whatever it was today". */
+addColumn('tasks', 'harness', 'TEXT');
+addColumn('tasks', 'model', 'TEXT');
 
 /** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
 db.exec(`
@@ -260,7 +270,7 @@ const tasks = {
       FROM tasks t
       JOIN projects p ON p.id = t.project_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY t.updated_at DESC, t.id DESC
+      ORDER BY t.number DESC, t.id DESC
     `;
     const rows = q(sql).all(...args).map(hydrate);
     const items = checklist.listForTasks(rows.map((r) => r.id));
@@ -283,23 +293,28 @@ const tasks = {
     for (const tag of list) insert.run(id, tag);
     return list;
   },
-  create({ project_id, title, description = '', status = 'ready', tags = [] }) {
+  create({ project_id, title, description = '', status = 'ready', tags = [], harness = null, model = null }) {
     const { next_task_number: number } = q('SELECT next_task_number FROM projects WHERE id = ?')
       .get(project_id);
     q('UPDATE projects SET next_task_number = next_task_number + 1 WHERE id = ?').run(project_id);
-    const { lastInsertRowid } = q(
-      'INSERT INTO tasks (project_id, number, title, description, status) VALUES (?, ?, ?, ?, ?)'
-    ).run(project_id, number, title, description, status);
+    const { lastInsertRowid } = q(`
+      INSERT INTO tasks (project_id, number, title, description, status, harness, model)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(project_id, number, title, description, status, harness, model);
     const id = Number(lastInsertRowid);
     tasks.setTags(id, tags);
     return tasks.get(id);
   },
-  update(id, { title, description, status, tags }) {
+  update(id, { title, description, status, tags, harness, model }) {
     const cur = tasks.get(id);
     if (!cur) return null;
-    q(`UPDATE tasks SET title = ?, description = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    q(`UPDATE tasks SET title = ?, description = ?, harness = ?, model = ?,
+       updated_at = datetime('now') WHERE id = ?`).run(
       title ?? cur.title,
       description ?? cur.description,
+      // Absent leaves the override alone; empty clears it back to following the default.
+      harness === undefined ? cur.harness : (harness || null),
+      model === undefined ? cur.model : (model || null),
       id
     );
     if (status !== undefined && status !== cur.status) tasks.setStatus(id, status);
@@ -397,6 +412,17 @@ const quickTags = {
   },
 };
 
+const settings = {
+  get(key) {
+    return q('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
+  },
+  set(key, value) {
+    q(`INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`)
+      .run(key, String(value));
+  },
+};
+
 function allTags() {
   return q(`
     SELECT tt.tag, COUNT(*) AS count
@@ -414,6 +440,6 @@ function allStatuses() {
 }
 
 module.exports = {
-  db, projects, tasks, comments, checklist, runs, quickTags,
+  db, projects, tasks, comments, checklist, runs, quickTags, settings,
   allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, BUILTIN_QUICK_TAGS, DB_PATH,
 };

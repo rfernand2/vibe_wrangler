@@ -4,6 +4,9 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   view: 'project', // 'project' | 'all'
+  version: '',
+  harnesses: [],
+  settings: { harness: '', model: '' },
   projects: [],
   projectId: null,
   filter: 'all',
@@ -524,6 +527,75 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTagMe
 window.addEventListener('resize', closeTagMenu);
 window.addEventListener('scroll', closeTagMenu, true);
 
+/* ---------- App menu ---------- */
+
+const closeAppMenu = () => { $('appMenu').hidden = true; };
+
+$('menuBtn').onclick = () => {
+  const menu = $('appMenu');
+  if (!menu.hidden) return closeAppMenu();
+  const r = $('menuBtn').getBoundingClientRect();
+  menu.style.left = `${r.left}px`;
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.hidden = false;
+};
+
+// The button toggles itself, so a click on it must not also count as a click outside.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#appMenu, #menuBtn')) closeAppMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAppMenu(); });
+window.addEventListener('resize', closeAppMenu);
+window.addEventListener('scroll', closeAppMenu, true);
+
+/* ---------- Harnesses ---------- */
+
+const harnessById = (id) => state.harnesses.find((h) => h.id === id);
+const harnessName = (id) => harnessById(id)?.name || id;
+const modelName = (harnessId, modelId) =>
+  harnessById(harnessId)?.models.find((m) => m.id === modelId)?.name || modelId;
+
+function option(value, label) {
+  const o = document.createElement('option');
+  o.value = value;
+  o.textContent = label;
+  return o;
+}
+
+const defaultLabel = () => `${harnessName(state.settings.harness)} · ${modelName(state.settings.harness, state.settings.model)}`;
+
+/** What a task will actually run with — its own choice, or the default it is still following. */
+function harnessLabel(t) {
+  if (!t.harness) return `${defaultLabel()} (default)`;
+  const model = t.model || harnessById(t.harness)?.models[0].id;
+  return `${harnessName(t.harness)} · ${modelName(t.harness, model)}`;
+}
+
+/** The model list belongs to the harness, so it is rebuilt whenever the harness changes. */
+function fillTaskModels(model) {
+  const chosen = $('taskHarness').value;
+  const h = harnessById(chosen || state.settings.harness);
+  if (!h) return;
+  const sel = $('taskModel');
+  sel.replaceChildren(option('', `Default (${modelName(h.id, chosen ? h.models[0].id : state.settings.model)})`));
+  for (const m of h.models) sel.append(option(m.id, m.name));
+  sel.value = model || '';
+}
+
+function fillTaskHarness(task) {
+  const sel = $('taskHarness');
+  sel.replaceChildren(option('', `Default (${harnessName(state.settings.harness)})`));
+  for (const h of state.harnesses) sel.append(option(h.id, h.name));
+  sel.value = task?.harness || '';
+  fillTaskModels(task?.model);
+  // Switching harness invalidates whatever model was picked for the previous one.
+  sel.onchange = () => fillTaskModels('');
+}
+
+function showAgentInfo() {
+  $('agentInfo').textContent = `agent: ${defaultLabel()}`;
+}
+
 /* ---------- Task drawer ---------- */
 
 const openTask = run(async (id) => {
@@ -549,7 +621,8 @@ function renderTask() {
   detailNum.textContent = `#${t.number}`;
   $('detailTitle').replaceChildren(detailNum, document.createTextNode(t.title));
   $('detailMeta').replaceChildren(
-    document.createTextNode(`${t.project_name} · created ${when(t.created_at)} · updated ${when(t.updated_at)}`)
+    document.createTextNode(`${t.project_name} · created ${when(t.created_at)}`
+      + ` · updated ${when(t.updated_at)} · ${harnessLabel(t)}`)
   );
   const elapsed = elapsedEl(t);
   if (elapsed) {
@@ -724,6 +797,7 @@ $('newTaskBtn').onclick = () => {
   $('taskForm').reset();
   $('taskForm').status.value = 'ready';
   $('taskForm').tags.value = state.tagFilter || '';
+  fillTaskHarness(null);
   openDialog('taskDialog');
 };
 $('detailEditBtn').onclick = () => {
@@ -734,6 +808,7 @@ $('detailEditBtn').onclick = () => {
   f.description.value = state.task.description;
   f.status.value = state.task.status;
   f.tags.value = state.task.tags.join(', ');
+  fillTaskHarness(state.task);
   openDialog('taskDialog');
 };
 $('taskForm').addEventListener('submit', run(async (e) => {
@@ -743,6 +818,8 @@ $('taskForm').addEventListener('submit', run(async (e) => {
     description: f.description.value.trim(),
     status: f.status.value.trim() || 'ready',
     tags: f.tags.value,
+    harness: f.harness.value,
+    model: f.model.value,
   };
   if (editingTask) await api('PUT', `/api/tasks/${editingTask.id}`, payload);
   else await api('POST', `/api/projects/${state.projectId}/tasks`, payload);
@@ -841,6 +918,44 @@ $('agentsBtn').onclick = run(async () => {
   await renderAgents();
 });
 
+function fillSettingsModels(model) {
+  const h = harnessById($('settingsHarness').value);
+  const sel = $('settingsModel');
+  sel.replaceChildren(...h.models.map((m) => option(m.id, m.name)));
+  sel.value = h.models.some((m) => m.id === model) ? model : h.models[0].id;
+}
+
+function openSettings() {
+  const hs = $('settingsHarness');
+  hs.replaceChildren(...state.harnesses.map((h) => option(h.id, h.name)));
+  hs.value = state.settings.harness;
+  fillSettingsModels(state.settings.model);
+  hs.onchange = () => fillSettingsModels(null);
+  openDialog('settingsDialog');
+}
+
+$('settingsForm').addEventListener('submit', run(async () => {
+  state.settings = await api('PUT', '/api/settings', {
+    harness: $('settingsHarness').value,
+    model: $('settingsModel').value,
+  });
+  showAgentInfo();
+  // Every task following the default now reads differently, on the board and in the drawer.
+  await loadTasks();
+  if (state.task) renderTask();
+  toast('Settings saved');
+}));
+
+function openAbout() {
+  $('aboutVersion').textContent = state.version;
+  $('aboutHarnesses').textContent = state.harnesses.map((h) => h.name).join(', ');
+  $('aboutDefault').textContent = defaultLabel();
+  openDialog('aboutDialog');
+}
+
+$('settingsMenuBtn').onclick = () => { closeAppMenu(); openSettings(); };
+$('aboutMenuBtn').onclick = () => { closeAppMenu(); openAbout(); };
+
 $('commentForm').addEventListener('submit', run(async (e) => {
   e.preventDefault();
   const ta = e.target.body;
@@ -864,7 +979,10 @@ wireAttachments($('commentForm').body, $('commentAttachBtn'), $('commentAttachIn
 
 run(async () => {
   const cfg = await api('GET', '/api/config');
-  $('agentInfo').textContent = `agent: ${cfg.claudeBin} · ${cfg.model}`;
+  state.version = cfg.version;
+  state.harnesses = cfg.harnesses;
+  state.settings = await api('GET', '/api/settings');
+  showAgentInfo();
   await loadProjects();
   await loadTasks();
   connectEvents();

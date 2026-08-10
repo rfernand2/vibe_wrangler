@@ -10,6 +10,7 @@
 </head>
 <body>
 <header class="appbar">
+  <button class="icon-btn" id="menuBtn" aria-label="Menu" aria-haspopup="true">&#9776;</button>
   <h1>Vibe Wrangler</h1>
   <span class="appbar-sub" id="agentInfo"></span>
   <span class="spacer"></span>
@@ -117,11 +118,66 @@
       <datalist id="tagOptions"></datalist>
       <small class="muted">Comma separated. Tags let you view related tasks across every project.</small>
     </label>
+    <div class="field-row">
+      <label>Harness
+        <select name="harness" id="taskHarness"></select>
+      </label>
+      <label>Model
+        <select name="model" id="taskModel"></select>
+      </label>
+    </div>
+    <small class="muted">Leave both on <em>Default</em> to follow Settings, so changing the default later moves this task too.</small>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="taskDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>
+</dialog>
+
+<!-- Settings dialog -->
+<dialog id="settingsDialog">
+  <form method="dialog" class="dialog-form" id="settingsForm">
+    <div class="dialog-head">
+      <h3>Settings</h3>
+      <button type="button" class="icon-btn" data-close="settingsDialog" aria-label="Close">&times;</button>
+    </div>
+    <p class="muted">What every task runs with, unless it names its own harness on the task itself.</p>
+    <div class="field-row">
+      <label>Default harness
+        <select id="settingsHarness"></select>
+      </label>
+      <label>Default model
+        <select id="settingsModel"></select>
+      </label>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="settingsDialog">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- About dialog -->
+<dialog id="aboutDialog">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <h3>About Vibe Wrangler</h3>
+      <button type="button" class="icon-btn" data-close="aboutDialog" aria-label="Close">&times;</button>
+    </div>
+    <p>A board for work you hand to a coding agent. Queue tasks against a project and each one runs
+      in its own git worktree, so several agents can work the same repository at once and their
+      changes merge back on their own.</p>
+    <dl class="about-list">
+      <dt>Version</dt><dd id="aboutVersion"></dd>
+      <dt>Harnesses</dt><dd id="aboutHarnesses"></dd>
+      <dt>Running with</dt><dd id="aboutDefault"></dd>
+    </dl>
+    <p class="muted">No dependencies and no build step — Node's own SQLite and HTTP server, and plain
+      files in the browser.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="aboutDialog">Close</button>
+    </div>
+  </div>
 </dialog>
 
 <!-- Agents dialog -->
@@ -193,6 +249,10 @@
   </div>
 </dialog>
 
+<div class="menu" id="appMenu" role="menu" hidden>
+  <button class="menu-item menu-plain" id="settingsMenuBtn"><span class="menu-text">Settings&hellip;</span></button>
+  <button class="menu-item menu-plain" id="aboutMenuBtn"><span class="menu-text">About</span></button>
+</div>
 <div class="menu" id="tagMenu" role="menu" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <script src="/app.js"></script>

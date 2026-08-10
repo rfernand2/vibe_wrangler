@@ -4,9 +4,9 @@ A lightweight web app for managing **projects** and **tasks** that a **coding-ag
 
 It is built as a general harness for driving agent CLIs — the app owns the board, the git isolation, the
 process supervision and the progress reporting, and treats the agent itself as a swappable command it
-shells out to. **Claude Code is the first supported CLI**, and currently the only one: the app speaks its
-`--output-format stream-json` transcript. Adding another means teaching `agent.js` that CLI's flags and
-output format; nothing above it needs to change.
+shells out to. **Claude Code** and **Codex** are both supported, and each task can name the one it wants.
+Everything that differs between them — the flags, and how to read their JSON event streams — lives in
+`harnesses.js`; adding a third is an entry in that list and nothing else.
 
 The point: you keep a clean, human-readable board of work. The agent picks up tasks, does the work, and
 reports back in short, user-level comments — you never have to wade through tool calls, diffs, or token noise
@@ -56,26 +56,33 @@ Projects  ──▶  Tasks  ──▶  Comments
   branch holding the earlier attempt's work is never deleted out from under you.
 - **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
   This includes agents inherited from an earlier run of the app, not just ones this instance started.
+- **Harness & model** — **Settings** (under the ☰ menu, alongside **About**) picks the harness and model
+  every task runs with by default; a task can name its own instead. A task that names neither *follows*
+  the default rather than snapshotting it, so changing the default later moves it too.
 - **Live** — the board updates itself. There is no Refresh button because there is nothing to refresh:
   the server pushes a notification whenever anything changes and every open tab refetches.
 - **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
 
 ## Why a CLI (not the API)
 
-The agent is invoked by shelling out to the `claude` CLI in non-interactive (`-p`) mode. That means it uses
-**your existing Claude subscription login** — there is no `ANTHROPIC_API_KEY` to manage and no per-token billing.
-It also keeps the integration surface tiny: an agent is a command, a working directory and a stream of output,
-which is why swapping in a different CLI is a contained change rather than a rewrite.
+The agent is invoked by shelling out to its CLI in non-interactive mode. That means it uses
+**your existing subscription login** — there is no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to manage and no
+per-token billing. It also keeps the integration surface tiny: an agent is a command, a working directory
+and a stream of output, which is why supporting a second CLI was an entry in `harnesses.js` rather than a
+rewrite.
 
 ## Requirements
 
 - **Node.js 22+** (uses the built-in `node:sqlite` module — no `npm install`, zero dependencies)
-- **An agent CLI** on your `PATH` — today that means the **Claude Code CLI**, already logged in
-  (`claude` → `/login`)
+- **At least one agent CLI** on your `PATH`, already logged in:
+  - **Claude Code** (`claude` → `/login`)
+  - **Codex** (`codex login`)
+
+  You only need the one you intend to run; the other simply won't start if selected.
 
 ## Quick start
 
-> ⚠️ **Before you start:** the agent runs with `--dangerously-skip-permissions` and will edit files and run
+> ⚠️ **Before you start:** the agent runs with its approval prompts disabled and will edit files and run
 > commands in your project directory without asking. Read [Permissions](#permissions-read-this) first.
 
 Windows:
@@ -104,10 +111,11 @@ PORT=4000 ./run.sh
 ## How a task gets worked
 
 1. You create a project pointing at a repo directory.
-2. You add a task with a title and a description of what you want done.
+2. You add a task with a title and a description of what you want done — and, if you don't want the
+   default, the harness and model it should run on.
 3. Set the task to **ready** and hit **Run** (or **Run all ready** on the project).
-4. The app flips the task to **active** and launches:
-   `claude -p "<task prompt>" --output-format stream-json` in the project directory.
+4. The app flips the task to **active**, resolves which harness and model the task runs on (its own choice,
+   or the default from Settings), and launches that CLI in the project directory with the prompt on stdin.
 5. While it works, the app watches the agent's output for three prefixes and drops everything else:
 
    | Line | Becomes |
@@ -126,7 +134,7 @@ You then review the comments, test the change, and either close it out or add a 
 
 A run is normally finalized when the CLI exits. It doesn't always get that far: a background process the
 agent started — a dev server, a poll loop — inherits the output pipe and can hold it open long after the
-agent has said its piece. So the terminal `result` the CLI prints is treated as the outcome, and if no
+agent has said its piece. So the terminal event the CLI prints is treated as the outcome, and if no
 exit follows within `AGENT_EXIT_GRACE_MS` the leftovers are killed and the run is closed out on the
 strength of that result rather than left `active` indefinitely.
 
@@ -203,20 +211,30 @@ Environment variables:
 | `VIBE_WRANGLER_ATTACHMENTS` | `./data/attachments` | Where pasted and uploaded files are stored |
 | `ATTACHMENT_MAX_BYTES` | `26214400` | Largest single upload accepted (25 MB) |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
-| `AGENT_MODEL` | `claude-opus-5` | Passed to `claude --model` |
+| `CODEX_BIN` | `codex` | Path to the Codex CLI |
+| `AGENT_HARNESS` | `claude` | Default harness before one has been saved in Settings |
+| `AGENT_MODEL` | first model of that harness | Default model before one has been saved in Settings |
 | `AGENT_EXIT_GRACE_MS` | `20000` | How long to wait for the CLI to exit after it reports its result |
 
-The agent is invoked as:
+`AGENT_HARNESS` and `AGENT_MODEL` are only a starting point: once you save Settings the stored choice
+wins, because a default you picked in the app shouldn't be silently overridden by the environment.
+Naming a harness or model that no longer exists falls back to a working one rather than failing the run.
+
+The agents are invoked as:
 
 ```
-claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <AGENT_MODEL>
+claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <model>
+codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model <model> -
 ```
+
+Both read the task prompt from stdin.
 
 ## Permissions (read this)
 
-**The agent runs with `--dangerously-skip-permissions`.** Every action a Claude Code session would normally
-stop and ask you to approve — editing files, deleting them, running builds, running arbitrary shell commands,
-installing packages, making network requests — happens automatically, with no prompt and no undo.
+**Every harness runs with its approvals turned off** — `--dangerously-skip-permissions` for Claude Code,
+`--dangerously-bypass-approvals-and-sandbox` for Codex. Every action either would normally stop and ask you
+to approve — editing files, deleting them, running builds, running arbitrary shell commands, installing
+packages, making network requests — happens automatically, with no prompt and no undo.
 
 This is not a setting you can turn off here; it is the premise of the tool. The whole point is that tasks run
 unattended while you are doing something else, and there is no terminal attached for anyone to approve a
@@ -243,7 +261,8 @@ It is not a security boundary and does nothing to contain a command the agent ch
 ```
 server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
-agent.js           Spawns the agent CLI, parses its output into comments (the CLI-specific seam)
+agent.js           Spawns the agent CLI and turns its output into comments and checklist ticks
+harnesses.js       Harness catalogue: how each agent CLI is launched, and how its events are read
 git.js             Worktree / branch / merge plumbing for concurrent tasks
 proc.js            Liveness, identity and tree-kill for agent processes
 events.js          Server-sent change notifications that keep open tabs current
@@ -261,10 +280,11 @@ run.sh             Start the app on macOS / Linux
 npm test
 ```
 
-Two suites, neither of which invokes the real Claude CLI — both are fast and free.
+Two suites, neither of which invokes a real agent CLI — both are fast and free.
 
 - `test/smoke.js` spins the server up on a spare port against a temporary database and exercises the
-  whole API: CRUD, tags, status filtering, cascade deletes, and the agent's failure paths.
+  whole API: CRUD, tags, status filtering, cascade deletes, harness/model selection, and the agent's
+  failure paths.
 - `test/worktree.js` builds throwaway git repos and runs two agents on one repo at the same time,
   using a scripted stand-in for the CLI. It checks that both changes land, that a genuine merge
   conflict is resolved without losing either side, that non-git projects fall back to a queue, and
@@ -299,6 +319,9 @@ Two suites, neither of which invokes the real Claude CLI — both are fast and f
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
 | `GET` | `/api/statuses` | Known status values (built-in + user-defined) |
+| `GET` | `/api/config` | App version and the harness catalogue with each harness's models |
+| `GET` | `/api/settings` | The default harness and model |
+| `PUT` | `/api/settings` | Change them |
 | `GET` | `/api/events` | Change notification stream (server-sent events) |
 
 ## License

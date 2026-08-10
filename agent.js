@@ -3,13 +3,12 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tasks, comments, projects, checklist, runs } = require('./db');
+const { tasks, comments, projects, checklist, runs, settings } = require('./db');
 const git = require('./git');
 const proc = require('./proc');
 const attachments = require('./attachments');
+const harnesses = require('./harnesses');
 
-const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
-const MODEL = process.env.AGENT_MODEL || 'claude-opus-5';
 const LOG_DIR = process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs');
 const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname, 'data', 'worktrees');
 
@@ -132,34 +131,41 @@ function stripDirectives(text) {
     .trim();
 }
 
-function childEnv() {
+function childEnv(harness) {
   const env = { ...process.env };
-  // Force subscription auth: an inherited API key would bill per token instead.
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  delete env.CLAUDE_CODE_USE_BEDROCK;
-  delete env.CLAUDE_CODE_USE_VERTEX;
+  harness.env(env);
   return env;
 }
 
+/** What the app will run with when neither the task nor anything else has an opinion. */
+function defaults() {
+  const { harness, model } = harnesses.resolve(
+    settings.get('harness') || process.env.AGENT_HARNESS,
+    settings.get('model') || process.env.AGENT_MODEL
+  );
+  return { harness, model };
+}
+
 /**
- * Spawns one Claude run. Notes become comments as they stream; the caller decides what
+ * A task naming a harness but no model takes that harness's own default — never the model picked
+ * for a different one, which would not exist there.
+ */
+function forTask(task) {
+  const base = defaults();
+  if (!task.harness) return harnesses.resolve(base.harness.id, task.model || base.model);
+  return harnesses.resolve(task.harness, task.model);
+}
+
+/**
+ * Spawns one agent run. Notes become comments as they stream; the caller decides what
  * happens afterwards, so the same plumbing serves both the task run and conflict resolution.
  */
-function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
-  const args = [
-    '-p',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--dangerously-skip-permissions',
-    '--model', MODEL,
-  ];
-
-  const child = spawn(CLAUDE_BIN, args, {
+function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, model, onDone }) {
+  const child = spawn(harness.bin, harness.args(model), {
     cwd,
-    env: childEnv(),
+    env: childEnv(harness),
     // Only fixed flags reach the command line; the prompt goes over stdin.
-    shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(CLAUDE_BIN),
+    shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(harness.bin),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -211,7 +217,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
 
   child.on('error', (err) => {
     log.write(`\n[spawn error] ${err.message}\n`);
-    settle({ status: 'spawn-error', message: `Could not start the Claude CLI (${err.message}). Is it installed and on your PATH?` });
+    settle({ status: 'spawn-error', message: `Could not start the ${harness.name} CLI (${err.message}). Is it installed and on your PATH?` });
   });
 
   child.stdin.on('error', () => {});
@@ -219,6 +225,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
 
   let buf = '';
   let lastNote = '';
+  let lastText = '';
   let finalText = '';
   let stderr = '';
 
@@ -234,20 +241,23 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, onDone }) {
       let evt;
       try { evt = JSON.parse(line); } catch { continue; }
 
-      if (evt.type === 'assistant' && evt.message?.content) {
-        for (const block of evt.message.content) {
-          if (block.type !== 'text' || !block.text) continue;
-          for (const d of extractDirectives(block.text)) {
-            if (d.kind === 'PLAN') { checklist.add(taskId, d.text); continue; }
-            if (d.kind === 'DONE') { checklist.markDone(taskId, d.text); continue; }
-            if (d.text === lastNote) continue;
-            lastNote = d.text;
-            comments.create({ task_id: taskId, author: 'agent', body: d.text });
-          }
-        }
-      } else if (evt.type === 'result') {
-        finalText = typeof evt.result === 'string' ? evt.result : '';
-        armLingerTimer(evt.is_error === true || (evt.subtype && evt.subtype !== 'success'));
+      const ev = harness.read(evt);
+      if (!ev) continue;
+
+      if (ev.done) {
+        // Not every harness puts the summary in its terminal event; the last message always has it.
+        finalText = ev.text || lastText;
+        armLingerTimer(ev.failed);
+        continue;
+      }
+
+      lastText = ev.text;
+      for (const d of extractDirectives(ev.text)) {
+        if (d.kind === 'PLAN') { checklist.add(taskId, d.text); continue; }
+        if (d.kind === 'DONE') { checklist.markDone(taskId, d.text); continue; }
+        if (d.text === lastNote) continue;
+        lastNote = d.text;
+        comments.create({ task_id: taskId, author: 'agent', body: d.text });
       }
     }
   });
@@ -353,10 +363,12 @@ function runTask(taskId) {
 
   const history = comments.listForTask(taskId);
   const prompt = buildPrompt(task, project, history, iso);
+  const { harness, model } = forTask(task);
 
   const logFile = path.join(LOG_DIR, `task-${taskId}-${Date.now()}.log`);
   const log = fs.createWriteStream(logFile, { flags: 'a' });
-  log.write(`# agent run for task ${taskId} at ${new Date().toISOString()}\n# cwd: ${cwd}\n\n${prompt}\n\n---\n`);
+  log.write(`# agent run for task ${taskId} at ${new Date().toISOString()}\n`
+    + `# cwd: ${cwd}\n# harness: ${harness.bin} (${model})\n\n${prompt}\n\n---\n`);
 
   // The checklist describes the run in progress, so a re-run starts from a blank one.
   checklist.clear(taskId);
@@ -365,9 +377,8 @@ function runTask(taskId) {
   comments.create({
     task_id: taskId,
     author: 'system',
-    body: iso
-      ? `Agent started working on this task on its own branch (${iso.branch}).`
-      : 'Agent started working on this task.',
+    body: `${harness.name} (${model}) started working on this task`
+      + (iso ? ` on its own branch (${iso.branch}).` : '.'),
   });
 
   spawnAgent({
@@ -377,6 +388,8 @@ function runTask(taskId) {
     log,
     iso,
     logFile,
+    harness,
+    model,
     onDone: (result) => {
       if (result.status === 'spawn-error') return finish(taskId, 'failed', result.message, log);
       if (result.status === 'stopped') return finish(taskId, 'ready', 'Agent run was stopped before it finished.', log);
@@ -450,6 +463,7 @@ function resolveConflicts(taskId, task, iso, log, attempt) {
     body: `Another change landed on ${iso.base} first, so ${files.length} file(s) overlap. Asking the agent to reconcile them.`,
   });
 
+  const { harness, model } = forTask(task);
   spawnAgent({
     taskId,
     cwd: iso.wtPath,
@@ -457,6 +471,8 @@ function resolveConflicts(taskId, task, iso, log, attempt) {
     log,
     iso,
     logFile: tasks.get(taskId)?.log_file,
+    harness,
+    model,
     onDone: (result) => {
       if (result.status !== 'ok') {
         git.abortMerge(iso.wtPath);
@@ -653,5 +669,5 @@ function readLog(taskId) {
 module.exports = {
   runTask, stopTask, runReady, runFailed, isRunning, readLog,
   adoptOrphans, listAgents, killAgent,
-  MODEL, CLAUDE_BIN, WORKTREE_DIR,
+  defaults, forTask, WORKTREE_DIR,
 };
