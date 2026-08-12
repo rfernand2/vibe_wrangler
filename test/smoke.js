@@ -377,6 +377,13 @@ async function main() {
   assert.ok(harnesses.byId('grok').reader()({ type: 'end', stopReason: 'Cancelled' }).failed);
   ok('a token-streamed transcript is buffered into whole lines');
 
+  // A model that never presses return still narrates, and the human should see it as it happens.
+  const glued = harnesses.byId('grok').reader();
+  assert.equal(glued({ type: 'text', data: 'NOTE: first thing.' }), null);
+  assert.deepEqual(glued({ type: 'text', data: 'NOTE: second' }), { text: 'NOTE: first thing.' });
+  assert.deepEqual(glued({ type: 'text', data: ' thing.NOTE: third' }), { text: 'NOTE: second thing.' });
+  ok('a directive glued onto the last one is released instead of waiting for a newline');
+
   // Single-turn is the CLI's default for a prompt file, and one turn is only ever a plan.
   assert.ok(harnesses.byId('grok').args('grok-4.5', 'p.txt').includes('--max-turns'),
     'the Grok CLI is given room for more than one turn');

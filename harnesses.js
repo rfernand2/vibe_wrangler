@@ -54,6 +54,27 @@ function ensureGrokAlias(provider, model) {
   fs.appendFileSync(GROK_CONFIG, current && !current.endsWith('\n') ? `\n${block}` : block);
 }
 
+/**
+ * Where the runner's `NOTE:`/`PLAN:`/`DONE:` lines may be cut. A newline is the obvious one, but
+ * models also run one directive straight onto the end of the last — `…in the project.NOTE: Found
+ * the…` — and a reader that waits for a newline holds everything after it back. One five-minute run
+ * narrated six times and the human saw all six in the last second, because no newline arrived in
+ * between.
+ */
+const DIRECTIVE_BOUNDARY = /\r?\n|(?<=\S)(?=(?:NOTE|PLAN|DONE):)/g;
+
+/** The last place `buf` can be split without cutting a directive in half, or null if there is none. */
+function lastBoundary(buf) {
+  let found = null;
+  DIRECTIVE_BOUNDARY.lastIndex = 0;
+  for (let m = DIRECTIVE_BOUNDARY.exec(buf); m; m = DIRECTIVE_BOUNDARY.exec(buf)) {
+    found = { end: m.index, rest: m.index + m[0].length };
+    // A lookahead matches nothing, so it would sit on the same index for ever.
+    if (!m[0]) DIRECTIVE_BOUNDARY.lastIndex++;
+  }
+  return found;
+}
+
 /** A reader that sees whole messages needs no state, but the contract is a factory either way. */
 const stateless = (read) => () => read;
 
@@ -184,8 +205,9 @@ const HARNESSES = [
     ],
     env() {},
     /**
-     * Grok streams a token at a time, so a directive arrives split across events. Buffering to
-     * whole lines is what makes `NOTE:` and friends matchable at all.
+     * Grok streams a token at a time, so a directive arrives split across events. Holding them
+     * until a boundary is what makes `NOTE:` and friends matchable at all, and releasing them at
+     * the earliest one is what lets the human watch the run rather than read it afterwards.
      */
     reader() {
       let pending = '';
@@ -199,10 +221,11 @@ const HARNESSES = [
         if (evt.type !== 'text' || typeof evt.data !== 'string') return null;
         all += evt.data;
         pending += evt.data;
-        if (!pending.includes('\n')) return null;
-        const lines = pending.split('\n');
-        pending = lines.pop();
-        return { text: lines.join('\n') };
+        const cut = lastBoundary(pending);
+        if (!cut) return null;
+        const text = pending.slice(0, cut.end);
+        pending = pending.slice(cut.rest);
+        return text.trim() ? { text } : null;
       };
     },
   },
@@ -235,4 +258,6 @@ const catalogue = () => HARNESSES.map((h) => ({
   })),
 }));
 
-module.exports = { HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, byId, resolve, catalogue };
+module.exports = {
+  HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, DIRECTIVE_BOUNDARY, byId, resolve, catalogue,
+};

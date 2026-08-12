@@ -189,14 +189,25 @@ async function main() {
   assert.equal(read(repo, 'a.txt'), 'base\nfrom A\n');
   ok('a failed run leaves the main checkout untouched');
 
-  // --- an agent that plans and stops has not done the work, whatever its exit code says ---
-  const t7b = tasks.create({ project_id: p1.id, title: 'Task G2', description: 'FAKE_PLAN_ONLY' });
+  // --- an agent that plans and stops is handed its own plan back rather than failing ---
+  const t7b = tasks.create({
+    project_id: p1.id, title: 'Task G2', description: 'FAKE_PLAN_ONLY\nFAKE_APPEND g2.txt|from G2',
+  });
   agent.runTask(t7b.id);
   await settle([t7b.id]);
-  assert.equal(tasks.get(t7b.id).status, 'failed', 'a run that reported nothing is not a completed task');
-  assert.match(bodies(t7b.id), /without reporting anything/);
-  assert.ok(tasks.get(t7b.id).checklist.length, 'the plan it did emit is kept');
-  ok('a clean exit with nothing reported fails rather than completing the task');
+  assert.equal(tasks.get(t7b.id).status, 'completed', 'the second attempt did the work');
+  assert.match(bodies(t7b.id), /Handing its plan back/);
+  assert.match(read(repo, 'g2.txt'), /from G2/);
+  ok('an agent that answers with a plan is asked again with that plan in hand');
+
+  // --- but a second silent stop is a real failure, not a loop ---
+  const t7c = tasks.create({ project_id: p1.id, title: 'Task G3', description: 'FAKE_PLAN_ALWAYS' });
+  agent.runTask(t7c.id);
+  await settle([t7c.id]);
+  assert.equal(tasks.get(t7c.id).status, 'failed', 'a run that never started is not a completed task');
+  assert.match(bodies(t7c.id), /answered with a plan twice/);
+  assert.ok(tasks.get(t7c.id).checklist.length, 'the plan it did emit is kept');
+  ok('an agent that plans twice and works neither time fails');
 
   // --- retrying a failed task must not destroy work its branch is still holding ---
   const t8 = tasks.create({ project_id: p1.id, title: 'Task H', description: 'FAKE_APPEND a.txt|from H' });

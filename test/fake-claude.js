@@ -64,8 +64,10 @@ function run() {
     return;
   }
 
-  // An agent that answers with its plan and ends the turn: nothing done, nothing said.
-  if (prompt.includes('FAKE_PLAN_ONLY')) {
+  // An agent that answers with its plan and ends the turn: nothing done, nothing said. Handing the
+  // plan back is what gets FAKE_PLAN_ONLY moving; FAKE_PLAN_ALWAYS never starts however it is asked.
+  const resumed = prompt.includes('You have already broken this task down');
+  if (prompt.includes('FAKE_PLAN_ALWAYS') || (prompt.includes('FAKE_PLAN_ONLY') && !resumed)) {
     say('PLAN: Read the code\nPLAN: Make the change');
     emit({ type: 'result', result: 'PLAN: Read the code' });
     return;

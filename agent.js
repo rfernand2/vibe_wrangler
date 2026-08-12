@@ -37,7 +37,13 @@ function isRunning(taskId) {
   return running.has(taskId) || adopted.has(taskId);
 }
 
-function buildPrompt(task, project, history, iso) {
+/**
+ * `plan` is set only when a previous run answered with its plan and stopped without doing anything.
+ * Grok's loop ends on any message that carries no tool call, so a text-only plan can end a run
+ * before it starts — intermittently, and more often the more context it is holding. Handing the plan
+ * straight back is cheaper than making the human notice and press the button again.
+ */
+function buildPrompt(task, project, history, iso, plan) {
   const lines = [
     'You are an autonomous coding agent working through a task queue. A human will read only the short',
     'notes you emit — they will not read your tool calls, diffs, or reasoning.',
@@ -58,16 +64,24 @@ function buildPrompt(task, project, history, iso) {
     'Your final message should be a short summary of what changed and anything the human should check or test.',
     '',
     '## Checklist protocol',
-    'Before you touch anything, break the task into 3-8 concrete sub-tasks and emit one `PLAN:` line each:',
-    '  PLAN: Reproduce the wrong-day bug in the date parser',
-    '  PLAN: Fix the timezone handling',
-    '  PLAN: Add tests either side of midnight',
+    ...(plan.length ? [
+      'You have already broken this task down, and the human is looking at the result. This is your plan:',
+      ...plan.map((item) => `  PLAN: ${item}`),
+      'You emitted it and then stopped without doing any of it. Do not plan again and do not repeat those',
+      'lines — carry them out, starting with the first, and reach for a tool in your very first message.',
+    ] : [
+      'Break the task into 3-8 concrete sub-tasks and emit one `PLAN:` line each, in the same message as',
+      'your first tool call — a message that is only text ends the run before any work happens:',
+      '  PLAN: Reproduce the wrong-day bug in the date parser',
+      '  PLAN: Fix the timezone handling',
+      '  PLAN: Add tests either side of midnight',
+      'Emit the whole plan up front so the human can see where you are going, then tick items off as you go',
+      'rather than all at the end. The plan is not the deliverable and emitting it does not end your turn —',
+      'keep going straight into the first item without pausing. A plan and no work is a failed run.',
+    ]),
     'The moment a sub-task is finished, echo it back with `DONE:` and the same wording:',
     '  DONE: Fix the timezone handling',
-    'Emit the whole plan up front so the human can see where you are going, then tick items off as you go',
-    'rather than all at the end. Keep each item to one short line a non-technical reader would understand.',
-    'The plan is not the deliverable and emitting it does not end your turn — keep going straight into the',
-    'first item without pausing. A run that produced a plan and no work is a failed run.',
+    'Keep each item to one short line a non-technical reader would understand.',
     'If the plan changes, emit a `PLAN:` line for the new sub-task — earlier items stay as they are.',
     'An item you finished but never ticked reads as work still outstanding, so tick it before you move on.',
     '',
@@ -137,12 +151,11 @@ function buildConflictPrompt(task, iso, files) {
 const DIRECTIVE = /^\s*(?:[-*]\s*)?(NOTE|PLAN|DONE):\s*(.+)$/;
 
 /**
- * Agents run one directive onto the end of another often enough to matter — `…plus signs.DONE: Find
- * the greet function` cost a checklist tick. Only a prefix glued straight onto a non-space is broken
- * out, so a directive merely named in a sentence stays part of that sentence.
+ * The same rule a streaming harness cuts its buffer on, so a directive is read exactly where it was
+ * released. Only a prefix glued straight onto a non-space is broken out, which leaves a directive
+ * merely named in a sentence part of that sentence.
  */
-const directiveLines = (text) =>
-  String(text).replace(/(?<=\S)(?=(?:NOTE|PLAN|DONE):)/g, '\n').split(/\r?\n/);
+const directiveLines = (text) => String(text).split(harnesses.DIRECTIVE_BOUNDARY);
 
 function extractDirectives(text) {
   const out = [];
@@ -405,13 +418,12 @@ function runTask(taskId) {
   if (iso) isolation.set(taskId, iso);
 
   const history = comments.listForTask(taskId);
-  const prompt = buildPrompt(task, project, history, iso);
   const { harness, provider, model } = forTask(task);
 
   const logFile = path.join(LOG_DIR, `task-${taskId}-${Date.now()}.log`);
   const log = fs.createWriteStream(logFile, { flags: 'a' });
   log.write(`# agent run for task ${taskId} at ${new Date().toISOString()}\n`
-    + `# cwd: ${cwd}\n# harness: ${harness.bin} (${model.id} via ${provider.name})\n\n${prompt}\n\n---\n`);
+    + `# cwd: ${cwd}\n# harness: ${harness.bin} (${model.id} via ${provider.name})\n`);
 
   // The checklist describes the run in progress, so a re-run starts from a blank one.
   checklist.clear(taskId);
@@ -424,37 +436,52 @@ function runTask(taskId) {
       + (iso ? ` on its own branch (${iso.branch}).` : '.'),
   });
 
-  spawnAgent({
-    taskId,
-    cwd,
-    prompt,
-    log,
-    iso,
-    logFile,
-    harness,
-    provider,
-    model,
-    onDone: (result) => {
-      if (result.status === 'spawn-error') return finish(taskId, 'failed', result.message, log);
-      if (result.status === 'stopped') return finish(taskId, 'ready', 'Agent run was stopped before it finished.', log);
-      if (result.status === 'error') return finish(taskId, 'failed', result.message, log);
+  const attempt = (plan) => {
+    const prompt = buildPrompt(task, project, history, iso, plan);
+    log.write(`\n${prompt}\n\n---\n`);
+    spawnAgent({
+      taskId,
+      cwd,
+      prompt,
+      log,
+      iso,
+      logFile,
+      harness,
+      provider,
+      model,
+      onDone: (result) => {
+        if (result.status === 'spawn-error') return finish(taskId, 'failed', result.message, log);
+        if (result.status === 'stopped') return finish(taskId, 'ready', 'Agent run was stopped before it finished.', log);
+        if (result.status === 'error') return finish(taskId, 'failed', result.message, log);
 
-      // Exiting cleanly is not the same as having done the work. An agent that reported nothing at
-      // all — no summary, no note, not one item ticked — most likely answered with its plan and
-      // ended the turn. Completing the task on that would take it off the board and merge an empty
-      // branch, so it is failed instead, with whatever it did write kept on the branch.
-      const ticked = checklist.listForTask(taskId).some((i) => i.done);
-      if (!result.summary && !result.sawNote && !ticked) {
-        return finish(taskId, 'failed', 'The agent stopped without reporting anything —'
-          + ' it likely ended its turn after planning rather than doing the work. Try running it again.', log);
-      }
-      if (result.summary) comments.create({ task_id: taskId, author: 'agent', body: result.summary });
+        // Exiting cleanly is not the same as having done the work. An agent that reported nothing at
+        // all — no summary, no note, not one item ticked — answered with its plan and ended the turn.
+        const items = checklist.listForTask(taskId);
+        if (!result.summary && !result.sawNote && !items.some((i) => i.done)) {
+          // It told us what it meant to do, so give that back to it rather than making the human ask
+          // twice. Only once: a second silent stop is a real failure and not a slow loop.
+          if (!plan.length && items.length) {
+            comments.create({
+              task_id: taskId,
+              author: 'system',
+              body: 'The agent planned the work and then stopped. Handing its plan back and asking it to carry it out.',
+            });
+            return attempt(items.map((i) => i.text));
+          }
+          // Completing the task on this would take it off the board and merge an empty branch, so it
+          // is failed instead, with whatever it did write kept on the branch.
+          return finish(taskId, 'failed', 'The agent stopped without doing the work —'
+            + ' it answered with a plan twice and never started. Try running it again.', log);
+        }
+        if (result.summary) comments.create({ task_id: taskId, author: 'agent', body: result.summary });
 
-      if (!iso) return finish(taskId, 'completed', null, log);
-      mergeBack(taskId, task, iso, log, 1);
-    },
-  });
+        if (!iso) return finish(taskId, 'completed', null, log);
+        mergeBack(taskId, task, iso, log, 1);
+      },
+    });
+  };
 
+  attempt([]);
   return tasks.get(taskId);
 }
 
