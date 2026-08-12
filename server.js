@@ -73,7 +73,14 @@ function serveAttachment(res, pathname) {
 }
 
 function withComments(task) {
-  return { ...task, comments: comments.listForTask(task.id), running: agent.isRunning(task.id) };
+  return {
+    ...task,
+    comments: comments.listForTask(task.id),
+    running: agent.isRunning(task.id),
+    // A finished task with an agent on it is one writing a reply, which the thread should say.
+    replying: agent.isReplying(task.id),
+    chats: agent.canChat(task),
+  };
 }
 
 /**
@@ -265,11 +272,13 @@ async function api(req, res, url) {
     if (c === 'comments' && method === 'POST') {
       if (!tasks.get(id)) return json(res, 404, { error: 'Task not found' });
       if (!body.body?.trim()) return json(res, 400, { error: 'Comment cannot be empty' });
-      return json(res, 201, comments.create({
-        task_id: id,
-        author: body.author === 'agent' ? 'agent' : 'user',
-        body: body.body.trim(),
-      }));
+      const author = body.author === 'agent' ? 'agent' : 'user';
+      const comment = comments.create({ task_id: id, author, body: body.body.trim() });
+      // A note added to a task that has already finished is a question nobody is coming to answer, so
+      // an agent is started for it and stops again as soon as it has replied. The reply arrives on the
+      // change stream in its own time; the comment itself is not held up waiting for it.
+      const replying = author === 'user' && agent.reply(id, comment);
+      return json(res, 201, { ...comment, replying });
     }
 
     if (c === 'run' && method === 'POST') {

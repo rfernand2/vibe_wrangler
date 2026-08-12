@@ -103,6 +103,12 @@ addColumn('tasks', 'started_at', 'TEXT');
 addColumn('tasks', 'finished_at', 'TEXT');
 addColumn('tasks', 'number', 'INTEGER');
 
+/**
+ * 'task' for a run doing the work, 'chat' for one answering a comment on a task that already
+ * finished. They are recovered differently after a restart, so the difference has to outlive us.
+ */
+addColumn('agent_runs', 'kind', `TEXT NOT NULL DEFAULT 'task'`);
+
 /** Null on any means "whatever the default is when the task runs", not "whatever it was today". */
 addColumn('tasks', 'harness', 'TEXT');
 addColumn('tasks', 'provider', 'TEXT');
@@ -362,11 +368,12 @@ const comments = {
  * processes its predecessor left behind instead of losing track of them.
  */
 const runs = {
-  start({ task_id, pid, image = null, log_file = null, worktree = null, branch = null, base = null }) {
+  start({ task_id, pid, image = null, log_file = null, worktree = null, branch = null, base = null,
+    kind = 'task' }) {
     const { lastInsertRowid } = q(`
-      INSERT INTO agent_runs (task_id, pid, server_pid, image, log_file, worktree, branch, base)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(task_id, pid, process.pid, image, log_file, worktree, branch, base);
+      INSERT INTO agent_runs (task_id, pid, server_pid, image, log_file, worktree, branch, base, kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task_id, pid, process.pid, image, log_file, worktree, branch, base, kind);
     return runs.get(Number(lastInsertRowid));
   },
   get(id) {

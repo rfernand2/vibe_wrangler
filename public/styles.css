@@ -357,6 +357,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .comment-form { display: grid; gap: 8px; }
 .comment-form textarea { width: 100%; }
 
+/* Says a finished task will still answer, and that an answer is on its way. */
+.comment-hint { margin: 0 0 8px; font-size: 12px; }
+.comment-hint.replying { color: var(--active); }
+
 /* ---------- Attachments ---------- */
 .attach-row { display: flex; align-items: center; gap: 10px; }
 .attach-row small { font-size: 12px; }

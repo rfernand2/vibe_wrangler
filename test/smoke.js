@@ -306,6 +306,26 @@ async function main() {
   assert.ok(!proc.isAlive(sleeper.pid), 'the inherited agent was killed');
   ok('terminates an inherited agent');
 
+  // A reply whose reader died with the app can never land, so it is stopped rather than adopted —
+  // and stopping it must leave the finished task it was answering about exactly as it was.
+  const chatTask = (await call('POST', `/api/projects/${retryProj.id}/tasks`, { title: 'Asked' })).body;
+  await call('PUT', `/api/tasks/${chatTask.id}`, { status: 'completed' });
+  const chatter = require('node:child_process').spawn(
+    process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  const chatRun = runs.start({
+    task_id: chatTask.id, pid: chatter.pid, image: proc.imageName(chatter.pid), kind: 'chat',
+  });
+  db.prepare('UPDATE agent_runs SET server_pid = 1 WHERE id = ?').run(chatRun.id);
+
+  agentMod.adoptOrphans();
+  assert.ok(runs.get(chatRun.id).ended_at, 'the run record is closed rather than reattached to');
+  for (let i = 0; i < 60 && proc.isAlive(chatter.pid); i++) await sleep(100);
+  assert.ok(!proc.isAlive(chatter.pid), 'the orphaned reply is stopped');
+  const afterRestart = (await call('GET', `/api/tasks/${chatTask.id}`)).body;
+  assert.equal(afterRestart.status, 'completed', 'the task it was answering about is undisturbed');
+  assert.match(afterRestart.comments.at(-1).body, /reply was lost/i);
+  ok('a reply orphaned by a restart is dropped, and the thread is told to ask again');
+
   // --- the change stream is what keeps the browser current now that Refresh is gone ---
   const stream = await fetch(`${base}/api/events`);
   assert.match(stream.headers.get('content-type'), /text\/event-stream/);
@@ -488,6 +508,23 @@ async function main() {
   ok('a task can be handed back to the default');
 
   await call('PUT', '/api/settings', { harness: 'claude', model: 'claude-opus-5' });
+
+  // --- a note on a finished task is answered, not just filed ---
+  const done = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Finished' })).body;
+  await call('PUT', `/api/tasks/${done.id}`, { status: 'completed' });
+  const posted = (await call('POST', `/api/tasks/${done.id}/comments`, { body: 'what did you change?' })).body;
+  assert.equal(posted.replying, true, 'the comment started an agent to answer it');
+  for (let i = 0; i < 60 && (await call('GET', `/api/tasks/${done.id}`)).body.replying; i++) await sleep(100);
+  const answered = (await call('GET', `/api/tasks/${done.id}`)).body;
+  assert.equal(answered.status, 'completed', 'answering a comment does not re-open the task');
+  assert.match(answered.comments.at(-1).body, /Claude Code CLI/i, 'a reply that cannot start says so in the thread');
+  ok('a comment on a finished task spins an agent up to answer, and back down again');
+
+  const filed = (await call('POST', `/api/tasks/${modelOnly.id}/comments`, { body: 'just a note' })).body;
+  assert.equal(filed.replying, false);
+  assert.equal((await call('GET', `/api/tasks/${modelOnly.id}`)).body.comments.length, 1,
+    'nothing was started, so nothing was said back');
+  ok('a note on a task that has not run yet is filed and left alone');
 
   // --- deletes cascade ---
   assert.equal((await call('DELETE', `/api/tasks/${t2.id}`)).status, 200);

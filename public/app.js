@@ -774,6 +774,17 @@ function renderTask() {
     li.append(head, body);
     list.append(li);
   }
+
+  // A finished task still answers: saying so is the only way anyone would know to ask.
+  const hint = $('commentHint');
+  hint.hidden = !(t.replying || t.chats);
+  hint.classList.toggle('replying', Boolean(t.replying));
+  hint.textContent = t.replying
+    ? 'The agent is reading the thread and writing a reply…'
+    : 'This task has finished. A note here starts the agent, which replies and then stops again.';
+  $('commentForm').body.placeholder = t.chats
+    ? 'Ask the agent about this task…'
+    : 'Add a note (review findings, test results, follow-ups)…';
 }
 
 async function refreshTask() {
@@ -989,6 +1000,7 @@ async function renderAgents() {
     meta.className = 'muted';
     meta.textContent = [
       a.project_name,
+      a.kind === 'chat' ? 'replying to a comment' : null,
       `pid ${a.pid}`,
       a.branch,
       `since ${when(a.started_at)}`,

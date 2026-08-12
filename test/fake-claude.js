@@ -50,6 +50,15 @@ function run() {
 
   emit({ type: 'system', subtype: 'init' });
 
+  // A follow-up on a finished task: plain prose back, no directives, and nothing written anywhere.
+  const asked = /## The message to answer\n([\s\S]*)$/.exec(prompt);
+  if (asked) {
+    const question = asked[1].trim();
+    say('Let me look at what the run left behind.');
+    emit({ type: 'result', result: `You asked: ${question}\nNothing has changed since the run finished.` });
+    return;
+  }
+
   if (/resolving a git merge conflict/.test(prompt)) {
     let fixed = 0;
     for (const file of walk(process.cwd())) {

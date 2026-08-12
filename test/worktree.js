@@ -218,6 +218,44 @@ async function main() {
   assert.equal(summary, '### Summary\nAll good.');
   ok('the summary is what follows the last directive, not the whole run');
 
+  // --- a note on a finished task is answered by an agent that starts, replies, and stops ---
+  const logBefore = tasks.get(t1.id).log_file;
+  const asked = comments.create({ task_id: t1.id, author: 'user', body: 'Which file did you change?' });
+  assert.equal(agent.reply(t1.id, asked), true);
+  assert.ok(agent.isReplying(t1.id), 'an agent is up for the reply');
+  for (let i = 0; i < 300 && agent.isReplying(t1.id); i++) await sleep(100);
+  assert.ok(!agent.isReplying(t1.id) && !agent.isRunning(t1.id), 'and it is spun back down again');
+
+  const answer = comments.listForTask(t1.id).at(-1);
+  assert.equal(answer.author, 'agent');
+  assert.match(answer.body, /You asked: Which file did you change\?/, 'the reply answers the message');
+  ok('a comment on a completed task is answered by an agent that then stops');
+
+  assert.equal(tasks.get(t1.id).status, 'completed', 'answering does not re-open the task');
+  assert.deepEqual(tasks.get(t1.id).checklist.map((i) => i.done), [true, true, false],
+    'the finished run\'s checklist is left as it was');
+  assert.equal(run(repo, 'status', '--porcelain'), '', 'the reply left the checkout alone');
+  ok('the task it answered about is untouched by the answer');
+
+  assert.equal(tasks.get(t1.id).log_file, logBefore, 'the raw log still points at the run');
+  assert.match(read(process.env.VIBE_WRANGLER_LOGS, logBefore), /reply to a comment on task/);
+  ok('the exchange is appended to that run\'s transcript');
+
+  // A failed task is the one people most want to ask about, so it answers too.
+  const why = comments.create({ task_id: t7c.id, author: 'user', body: 'Why did you stop?' });
+  assert.equal(agent.reply(t7c.id, why), true);
+  for (let i = 0; i < 300 && agent.isReplying(t7c.id); i++) await sleep(100);
+  assert.match(comments.listForTask(t7c.id).at(-1).body, /You asked: Why did you stop\?/);
+  assert.equal(tasks.get(t7c.id).status, 'failed', 'it stays failed, ready to be run again');
+  ok('a failed task answers questions without being retried');
+
+  // Nothing is spent on a task an agent is coming to anyway.
+  const notRun = tasks.create({ project_id: p1.id, title: 'Task J' });
+  const pending = comments.create({ task_id: notRun.id, author: 'user', body: 'anything to report?' });
+  assert.equal(agent.reply(notRun.id, pending), false);
+  assert.equal(comments.listForTask(notRun.id).length, 1, 'the note is filed and nothing else happens');
+  ok('a task that has not run yet is left to its run');
+
   // --- retrying a failed task must not destroy work its branch is still holding ---
   const t8 = tasks.create({ project_id: p1.id, title: 'Task H', description: 'FAKE_APPEND a.txt|from H' });
   const held = `llm-task/${t8.id}`;

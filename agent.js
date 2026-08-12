@@ -31,11 +31,26 @@ const adopted = new Map();
 const isolation = new Map();
 /** projectId -> taskId[] — only used for projects we cannot isolate (non-git directories). */
 const queues = new Map();
+/** taskIds whose agent is answering a comment rather than working — these never touch the status. */
+const replying = new Set();
 
 function isRunning(taskId) {
   taskId = Number(taskId);
   return running.has(taskId) || adopted.has(taskId);
 }
+
+function isReplying(taskId) {
+  return replying.has(Number(taskId));
+}
+
+/**
+ * A finished task is still a conversation: a note added to it after the run is a question for whoever
+ * did the work, and there is no run coming that would answer it. Only these two statuses get a reply —
+ * a task that has not started, or is working now, has an agent reaching its thread anyway.
+ */
+const CHAT_STATUSES = ['completed', 'failed'];
+
+const canChat = (task) => Boolean(task) && CHAT_STATUSES.includes(task.status);
 
 /**
  * `plan` is set only when a previous run answered with its plan and stopped without doing anything.
@@ -123,6 +138,49 @@ function buildPrompt(task, project, history, iso, plan) {
       + ' Open it from that path with your file tools; screenshots and logs there are part of the brief.');
   }
   lines.push('', 'Do the work now, then report back.');
+  return lines.join('\n');
+}
+
+/**
+ * The one prompt that asks for a conversation rather than a piece of work. There is no reporting
+ * protocol in it: nothing here is a run, so the whole reply is what gets posted to the thread. It is
+ * told not to write anything, because the task's own worktree is long gone — the only directory left
+ * to answer from is the user's checkout, which another agent may be working in right now.
+ */
+function buildChatPrompt(task, project, history, message, cwd) {
+  const lines = [
+    'You are the coding agent that worked on the task below, answering a follow-up. The run is over:',
+    "the human has added a message to the task's comment thread and is waiting for a reply.",
+    '',
+    '## How to answer',
+    '- Write plain prose, as a short message to a person. Your whole reply is posted to the thread as',
+    '  it stands, so there is no `NOTE:`/`PLAN:`/`DONE:` protocol here — do not use those prefixes.',
+    '- Read whatever you need in the working directory to answer accurately, and run read-only commands',
+    '  (`git log`, `git show`, a test) where they help.',
+    '- Change nothing: no edits, no new files, no commits, no branches. This is a conversation, not',
+    '  another run of the task, and another agent may be working in this directory at the same time.',
+    '- If they are asking for more work, say in a sentence what you would do and that running the task',
+    '  again is what starts it. Do not start it here.',
+    '- Answer what was asked and stop, in a few sentences unless they asked for more.',
+    '',
+    '## Project',
+    `Name: ${project.name}`,
+  ];
+  if (project.description) lines.push(`About: ${project.description}`);
+  lines.push(`Working directory: ${cwd}`);
+
+  lines.push('', '## Task', `Title: ${task.title}`, `Status: ${task.status}`);
+  const description = attachments.toLocalPaths(task.description);
+  if (description) lines.push('', description);
+  const notes = history.map((c) => `- [${c.author}] ${attachments.toLocalPaths(c.body)}`);
+  if (notes.length) lines.push('', '## The thread so far', ...notes);
+  const text = attachments.toLocalPaths(message);
+  if ([description, text, ...notes].some((t) => t.includes(attachments.LOCAL_FILE_TAG))) {
+    lines.push('', `Anything marked \`(${attachments.LOCAL_FILE_TAG}…)\` above is a file the human attached.`
+      + ' Open it from that path with your file tools.');
+  }
+  // Last, so the thing being answered is the closest text to the reply.
+  lines.push('', '## The message to answer', text);
   return lines.join('\n');
 }
 
@@ -231,9 +289,12 @@ function forTask(task) {
 
 /**
  * Spawns one agent run. Notes become comments as they stream; the caller decides what
- * happens afterwards, so the same plumbing serves both the task run and conflict resolution.
+ * happens afterwards, so the same plumbing serves the task run, conflict resolution and a reply to a
+ * comment. `directives: false` turns the reporting protocol off for a run that was never asked to
+ * follow one — a stray `NOTE:` in a reply is a sentence, not a note to file.
  */
-function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider, model, onDone }) {
+function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider, model, onDone,
+  directives = true, kind = 'task' }) {
   // A harness reaching somebody else's endpoint may need setting up before it can be started.
   harness.prepare?.(provider, model);
 
@@ -267,6 +328,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       worktree: iso?.wtPath ?? null,
       branch: iso?.branch ?? null,
       base: iso?.base ?? null,
+      kind,
     })
     : null;
 
@@ -299,7 +361,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       if (entry.stopping) return settle({ status: 'stopped' });
       settle(failed
         ? { status: 'error', message: 'The agent reported a failed run.' }
-        : { status: 'ok', summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
+        : { status: 'ok', text: finalText, summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
     }, LINGER_GRACE_MS);
   };
 
@@ -342,6 +404,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       }
 
       lastText = ev.text;
+      if (!directives) continue;
       for (const d of extractDirectives(ev.text)) {
         if (d.kind === 'PLAN') { checklist.add(taskId, d.text); continue; }
         if (d.kind === 'DONE') { checklist.markDone(taskId, d.text); continue; }
@@ -365,7 +428,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 500);
       return settle({ status: 'error', message: `Agent exited with an error${detail ? `: ${detail}` : ` (exit code ${code})`}.` });
     }
-    settle({ status: 'ok', summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
+    settle({ status: 'ok', text: finalText, summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
   });
 }
 
@@ -423,6 +486,7 @@ function runTask(taskId) {
   taskId = Number(taskId);
   const task = tasks.get(taskId);
   if (!task) throw new Error('Task not found');
+  if (isReplying(taskId)) throw new Error('The agent is answering a comment on this task. Try again once it has replied.');
   if (isRunning(taskId)) throw new Error('Agent is already running for this task');
 
   const project = projects.get(task.project_id);
@@ -517,6 +581,84 @@ function runTask(taskId) {
 
   attempt([]);
   return tasks.get(taskId);
+}
+
+/**
+ * Answers a comment left on a task that has already finished, then stops again. Nothing about the
+ * task moves: the status, the checklist and the clock all stay as the run that finished it left them,
+ * because this is a question about that run and not a new one.
+ *
+ * Returns false when there is nothing to answer with — a status that gets no reply, an agent already
+ * on this task, or a directory that has since gone. Silence is only acceptable in the first two: the
+ * user is watching the thread, so anything that stops a reply arriving has to say so there.
+ */
+function reply(taskId, comment) {
+  taskId = Number(taskId);
+  const task = tasks.get(taskId);
+  if (!canChat(task) || isRunning(taskId)) return false;
+
+  const project = projects.get(task.project_id);
+  const root = (project.directory || '').trim();
+  if (!root || !fs.existsSync(root)) {
+    comments.create({
+      task_id: taskId,
+      author: 'system',
+      body: `Cannot answer: the project directory ${root ? `"${root}" does not exist` : 'is not set'}.`,
+    });
+    return false;
+  }
+
+  // The reply belongs with the run it is about, so it is appended to that run's transcript rather
+  // than starting a new one the task's Raw log would then point at instead.
+  const existing = logPath(task.log_file);
+  const logFile = existing && fs.existsSync(existing)
+    ? existing
+    : path.join(LOG_DIR, `task-${taskId}-${Date.now()}.log`);
+  const log = fs.createWriteStream(logFile, { flags: 'a' });
+  if (logFile !== existing) tasks.setLogFile(taskId, path.basename(logFile));
+
+  const history = comments.listForTask(taskId).filter((c) => c.id < comment.id);
+  const { harness, provider, model } = forTask(task);
+  const prompt = buildChatPrompt(task, project, history, comment.body, root);
+  log.write(`\n# reply to a comment on task ${taskId} at ${new Date().toISOString()}\n`
+    + `# cwd: ${root}\n# harness: ${harness.bin} (${model.id} via ${provider.name})\n\n${prompt}\n\n---\n`);
+
+  replying.add(taskId);
+  spawnAgent({
+    taskId,
+    cwd: root,
+    prompt,
+    log,
+    iso: null,
+    logFile,
+    harness,
+    provider,
+    model,
+    // Nothing here was asked to follow the reporting protocol, and there is no checklist to build.
+    directives: false,
+    kind: 'chat',
+    onDone: (result) => {
+      replying.delete(taskId);
+      // The whole closing message is the reply. A directive that slipped in anyway is dropped, since
+      // it would read as protocol noise to whoever asked the question.
+      const answer = result.status === 'ok' ? stripDirectives(result.text || '') : '';
+      if (answer) {
+        comments.create({ task_id: taskId, author: 'agent', body: answer });
+      } else if (result.status === 'stopped') {
+        comments.create({ task_id: taskId, author: 'system', body: 'The reply was stopped before it was finished.' });
+      } else {
+        comments.create({
+          task_id: taskId,
+          author: 'system',
+          body: result.message || 'The agent finished without saying anything. Try asking again.',
+        });
+      }
+      log.end();
+      // A reply holds the project directory like any other run, so whatever was waiting on it goes now.
+      drainQueue(task.project_id);
+    },
+  });
+  return true;
 }
 
 /**
@@ -670,7 +812,12 @@ function adoptOrphans() {
   const result = { adopted: 0, closed: 0, reset: 0 };
 
   for (const r of runs.open()) {
-    if (proc.looksLike(r.pid, r.image)) {
+    // A reply is only worth anything to the pipe that died with the app, so it is dropped rather
+    // than adopted — and dropping it must not disturb the finished task it was answering about.
+    if (r.kind === 'chat') {
+      discardReply(r);
+      result.closed++;
+    } else if (proc.looksLike(r.pid, r.image)) {
       adopt(r);
       result.adopted++;
     } else {
@@ -690,6 +837,17 @@ function adoptOrphans() {
     result.reset++;
   }
   return result;
+}
+
+/** Its answer can no longer reach anyone, so stop it burning tokens and tell the thread to ask again. */
+function discardReply(record) {
+  if (proc.looksLike(record.pid, record.image)) proc.killTree(record.pid);
+  runs.end(record.id);
+  comments.create({
+    task_id: record.task_id,
+    author: 'system',
+    body: 'The app restarted while the agent was writing a reply here, so the reply was lost. Ask again.',
+  });
 }
 
 function adopt(record) {
@@ -757,6 +915,7 @@ function listAgents() {
       pid: r.pid,
       branch: r.branch,
       started_at: r.started_at,
+      kind: r.kind,
       mine: r.server_pid === process.pid,
     });
   }
@@ -784,6 +943,7 @@ function readLog(taskId) {
 
 module.exports = {
   runTask, stopTask, runReady, runFailed, isRunning, readLog,
+  reply, canChat, isReplying, CHAT_STATUSES,
   adoptOrphans, listAgents, killAgent,
   defaults, forTask, WORKTREE_DIR,
 };
