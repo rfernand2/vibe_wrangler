@@ -671,6 +671,19 @@ const providerById = (harnessId, providerId) =>
 const modelName = (harnessId, providerId, modelId) =>
   providerById(harnessId, providerId)?.models.find((m) => m.id === modelId)?.name || modelId;
 
+/**
+ * The browser's own copy of the server's draw (`harnesses.randomChoice`), so the New task dialog can
+ * deal a harness up front and show it in the selects rather than leaving the dice until submit.
+ * Native provider and top model, for the same reason as the server's: the question being asked is
+ * which harness does better, and routing one of them through somebody else's endpoint would be
+ * asking about the endpoint instead. The server still draws for tasks created outside this dialog.
+ */
+function drawHarness() {
+  const h = state.harnesses[Math.floor(Math.random() * state.harnesses.length)];
+  const p = h.providers.find((x) => x.id === 'native') || h.providers[0];
+  return { harness: h.id, provider: p.id, model: p.models[0].id };
+}
+
 function option(value, label) {
   const o = document.createElement('option');
   o.value = value;
@@ -731,22 +744,30 @@ function fillHarness(ids, { harness, provider, model }) {
 
 const FOLLOWS_DEFAULT = 'These open on the current default. Leave them alone and the task keeps'
   + ' following Settings, so changing the default later moves this task too.';
-const DEALT_AT_RANDOM = 'Settings is dealing each new task a harness at random. Leave these alone'
-  + ' and this task gets one by lot, on its top model, and keeps it. Change any of them and the'
-  + ' task runs with what you picked instead.';
+const DEALT_AT_RANDOM = 'Settings is dealing each new task a harness at random, and this one drew'
+  + ' what is shown above, on its top model. Leave it and the task keeps that harness. Change any of'
+  + ' them and the task runs with what you picked instead.';
+
+/**
+ * Whether the dialog currently open dealt its own harness — true only for a new task while the draw
+ * is on. The submit handler needs to know, because a dealt pick has to be sent as a pick.
+ */
+let dealtHarness = false;
 
 /**
  * A task that has not chosen opens showing the default, which is what it would run with today —
- * except on a new task while the draw is on, where the default is not what it would run with and
- * saying so is the only warning the human gets before the dice decide.
+ * except on a new task while the draw is on, where the dialog rolls the dice itself and shows what
+ * it got. Either way, what is sitting in the three selects at submit is what the task runs with, so
+ * a draw the human does not fancy is overridden by simply changing it.
  */
 const fillTaskHarness = (task) => {
-  fillHarness(TASK_SELECTS, {
+  dealtHarness = !task && state.settings.random;
+  fillHarness(TASK_SELECTS, dealtHarness ? drawHarness() : {
     harness: task?.harness || state.settings.harness,
     provider: task?.provider || state.settings.provider,
     model: task?.model || state.settings.model,
   });
-  $('taskHarnessHint').textContent = !task && state.settings.random ? DEALT_AT_RANDOM : FOLLOWS_DEFAULT;
+  $('taskHarnessHint').textContent = dealtHarness ? DEALT_AT_RANDOM : FOLLOWS_DEFAULT;
 };
 
 /** The harnesses the app can drive at all — a fact about the build, not about the current default. */
@@ -990,8 +1011,12 @@ $('detailEditBtn').onclick = () => openTaskEditor(state.task);
 $('taskForm').addEventListener('submit', run(async (e) => {
   const f = e.target;
   // A pick that matches the default is stored as no pick at all, so the task goes on following
-  // Settings instead of freezing today's answer the moment anyone opens this dialog.
-  const choice = (name) => (f[name].value === state.settings[name] ? '' : f[name].value);
+  // Settings instead of freezing today's answer the moment anyone opens this dialog. A dialog that
+  // dealt its own harness is the exception and sends all three verbatim: a draw that happened to
+  // land on the default would otherwise reach the server as "no pick" and be re-rolled into
+  // something other than what the human was shown.
+  const choice = (name) =>
+    (!dealtHarness && f[name].value === state.settings[name] ? '' : f[name].value);
   const payload = {
     title: f.title.value.trim(),
     description: f.description.value.trim(),
