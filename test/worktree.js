@@ -200,6 +200,14 @@ async function main() {
   assert.match(read(repo, 'g2.txt'), /from G2/);
   ok('an agent that answers with a plan is asked again with that plan in hand');
 
+  // --- a CLI that dies without explaining itself leaves only what it was saying at the time ---
+  const t7e = tasks.create({ project_id: p1.id, title: 'Task G5', description: 'FAKE_SILENT_DIE' });
+  agent.runTask(t7e.id);
+  await settle([t7e.id]);
+  assert.equal(tasks.get(t7e.id).status, 'failed');
+  assert.match(bodies(t7e.id), /exit code 1[\s\S]*last thing it said was: "Let me check the CSS/);
+  ok('a silent crash is reported with what the agent was in the middle of');
+
   // --- but a second silent stop is a real failure, not a loop ---
   const t7c = tasks.create({ project_id: p1.id, title: 'Task G3', description: 'FAKE_PLAN_ALWAYS' });
   agent.runTask(t7c.id);

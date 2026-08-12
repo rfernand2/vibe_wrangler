@@ -350,7 +350,15 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
     if (signal || entry.stopping) return settle({ status: 'stopped' });
     if (code !== 0) {
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 500);
-      return settle({ status: 'error', message: `Agent exited with an error${detail ? `: ${detail}` : ` (exit code ${code})`}.` });
+      if (detail) return settle({ status: 'error', message: `Agent exited with an error: ${detail}.` });
+      // A CLI that dies saying nothing leaves the exit code as the whole story, which is no story at
+      // all. What it was in the middle of is the only evidence there is, so it goes in the comment.
+      const said = lastText.trim().split(/\r?\n/).filter(Boolean).slice(-2).join(' ').slice(0, 300);
+      return settle({
+        status: 'error',
+        message: `Agent exited with an error (exit code ${code}) and reported nothing about why.`
+          + (said ? ` The last thing it said was: "${said}"` : ' It had not said anything yet.'),
+      });
     }
     settle({ status: 'ok', summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
   });
