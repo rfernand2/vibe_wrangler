@@ -146,8 +146,10 @@ PORT=4000 ./run.sh
    `ready` with an error comment if the run failed).
 
 Exiting cleanly is not taken as having done the work. A run that reported nothing at all — no summary, no
-note, not one checklist item ticked — is marked `failed` rather than completed, because the likeliest
-reason is an agent that answered with its plan and stopped. Whatever it did write stays on its branch.
+note, not one checklist item ticked — has almost certainly answered with its plan and stopped, so instead of
+being completed it is started again with that plan handed back to it. Only if it goes silent a second time
+is the task marked `failed`, and whatever it did write stays on its branch either way. See
+[when an agent plans and stops](#when-an-agent-plans-and-stops).
 
 You then review the comments, test the change, and either close it out or add a follow-up task.
 
@@ -254,9 +256,20 @@ grok --prompt-file <file> --output-format streaming-json --permission-mode bypas
 
 Claude Code and Codex read the task prompt from stdin. Grok has no stdin mode and takes the prompt as an
 argument, which a long description would overflow on Windows, so it gets a file written beside the run's log.
-A prompt file is single-turn by default there, and one turn is only ever a plan — the model answers and the
-run ends before it has reached for a tool — so `--max-turns` is what makes it an agent rather than a
-chatbot. A run that exhausts that ceiling is reported as failed rather than finished.
+`--max-turns` is a ceiling on how far the agent may go, not a target; a run that exhausts it is reported as
+failed rather than finished.
+
+### When an agent plans and stops
+
+Grok's loop ends on any message that carries no tool call, so a reply that is only a plan can end a run
+before it starts. It happens intermittently and more often the larger the repository, and it is partly
+model-side — [grok-4.5 is reported](https://github.com/OpenRouterTeam/docs/issues/176) to return narration
+instead of a tool call above some context size — so no prompt makes it go away. Asking for the plan in the
+same message as the first tool call helps (0 failures in 9 against 1 in 5 here), but the thing that actually
+recovers the run is that a run reporting nothing at all — no summary, no note, not one item ticked — is
+handed its own plan back and asked to carry it out, without anyone having to press the button again. A
+second silent stop is treated as a real failure rather than retried again, and whatever the agent did write
+stays on its branch either way.
 
 ### Third-party models
 
