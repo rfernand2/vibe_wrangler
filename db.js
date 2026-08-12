@@ -103,8 +103,9 @@ addColumn('tasks', 'started_at', 'TEXT');
 addColumn('tasks', 'finished_at', 'TEXT');
 addColumn('tasks', 'number', 'INTEGER');
 
-/** Null on either means "whatever the default is when the task runs", not "whatever it was today". */
+/** Null on any means "whatever the default is when the task runs", not "whatever it was today". */
 addColumn('tasks', 'harness', 'TEXT');
+addColumn('tasks', 'provider', 'TEXT');
 addColumn('tasks', 'model', 'TEXT');
 
 /** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
@@ -293,27 +294,29 @@ const tasks = {
     for (const tag of list) insert.run(id, tag);
     return list;
   },
-  create({ project_id, title, description = '', status = 'ready', tags = [], harness = null, model = null }) {
+  create({ project_id, title, description = '', status = 'ready', tags = [],
+    harness = null, provider = null, model = null }) {
     const { next_task_number: number } = q('SELECT next_task_number FROM projects WHERE id = ?')
       .get(project_id);
     q('UPDATE projects SET next_task_number = next_task_number + 1 WHERE id = ?').run(project_id);
     const { lastInsertRowid } = q(`
-      INSERT INTO tasks (project_id, number, title, description, status, harness, model)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(project_id, number, title, description, status, harness, model);
+      INSERT INTO tasks (project_id, number, title, description, status, harness, provider, model)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(project_id, number, title, description, status, harness, provider, model);
     const id = Number(lastInsertRowid);
     tasks.setTags(id, tags);
     return tasks.get(id);
   },
-  update(id, { title, description, status, tags, harness, model }) {
+  update(id, { title, description, status, tags, harness, provider, model }) {
     const cur = tasks.get(id);
     if (!cur) return null;
-    q(`UPDATE tasks SET title = ?, description = ?, harness = ?, model = ?,
+    q(`UPDATE tasks SET title = ?, description = ?, harness = ?, provider = ?, model = ?,
        updated_at = datetime('now') WHERE id = ?`).run(
       title ?? cur.title,
       description ?? cur.description,
       // Absent leaves the override alone; empty clears it back to following the default.
       harness === undefined ? cur.harness : (harness || null),
+      provider === undefined ? cur.provider : (provider || null),
       model === undefined ? cur.model : (model || null),
       id
     );

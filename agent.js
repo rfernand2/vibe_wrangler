@@ -152,32 +152,44 @@ function childEnv(harness) {
 
 /** What the app will run with when neither the task nor anything else has an opinion. */
 function defaults() {
-  const { harness, model } = harnesses.resolve(
+  return harnesses.resolve(
     settings.get('harness') || process.env.AGENT_HARNESS,
+    settings.get('provider') || process.env.AGENT_PROVIDER,
     settings.get('model') || process.env.AGENT_MODEL
   );
-  return { harness, model };
 }
 
 /**
- * A task naming a harness but no model takes that harness's own default — never the model picked
- * for a different one, which would not exist there.
+ * A task naming a harness but no model takes that harness's own first model — never the one picked
+ * for a different harness, which would not exist there. The same goes for a provider.
  */
 function forTask(task) {
   const base = defaults();
-  if (!task.harness) return harnesses.resolve(base.harness.id, task.model || base.model);
-  return harnesses.resolve(task.harness, task.model);
+  if (task.harness) return harnesses.resolve(task.harness, task.provider, task.model);
+  return harnesses.resolve(
+    base.harness.id,
+    task.provider || base.provider.id,
+    task.model || base.model.id
+  );
 }
 
 /**
  * Spawns one agent run. Notes become comments as they stream; the caller decides what
  * happens afterwards, so the same plumbing serves both the task run and conflict resolution.
  */
-function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, model, onDone }) {
-  const child = spawn(harness.bin, harness.args(model), {
+function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider, model, onDone }) {
+  // A harness reaching somebody else's endpoint may need setting up before it can be started.
+  harness.prepare?.(provider, model);
+
+  // Harnesses that cannot read stdin get the prompt as a file rather than an argument, which a
+  // long prompt would overflow on Windows. It sits beside the log so it outlives the run.
+  const promptFile = harness.input === 'file' && logFile ? `${logFile}.prompt.txt` : null;
+  if (promptFile) fs.writeFileSync(promptFile, prompt);
+
+  const child = spawn(harness.bin, harness.args(model.id, promptFile), {
     cwd,
     env: childEnv(harness),
-    // Only fixed flags reach the command line; the prompt goes over stdin.
+    // Only fixed flags reach the command line; the prompt never does.
     shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(harness.bin),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -234,13 +246,15 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, model, on
   });
 
   child.stdin.on('error', () => {});
-  child.stdin.end(prompt);
+  child.stdin.end(promptFile ? '' : prompt);
 
   let buf = '';
   let lastNote = '';
   let lastText = '';
   let finalText = '';
   let stderr = '';
+  // Per run, not per harness: a token-streaming CLI has to buffer, and that state cannot be shared.
+  const read = harness.reader();
 
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
@@ -254,7 +268,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, model, on
       let evt;
       try { evt = JSON.parse(line); } catch { continue; }
 
-      const ev = harness.read(evt);
+      const ev = read(evt);
       if (!ev) continue;
 
       if (ev.done) {
@@ -376,12 +390,12 @@ function runTask(taskId) {
 
   const history = comments.listForTask(taskId);
   const prompt = buildPrompt(task, project, history, iso);
-  const { harness, model } = forTask(task);
+  const { harness, provider, model } = forTask(task);
 
   const logFile = path.join(LOG_DIR, `task-${taskId}-${Date.now()}.log`);
   const log = fs.createWriteStream(logFile, { flags: 'a' });
   log.write(`# agent run for task ${taskId} at ${new Date().toISOString()}\n`
-    + `# cwd: ${cwd}\n# harness: ${harness.bin} (${model})\n\n${prompt}\n\n---\n`);
+    + `# cwd: ${cwd}\n# harness: ${harness.bin} (${model.id} via ${provider.name})\n\n${prompt}\n\n---\n`);
 
   // The checklist describes the run in progress, so a re-run starts from a blank one.
   checklist.clear(taskId);
@@ -390,7 +404,7 @@ function runTask(taskId) {
   comments.create({
     task_id: taskId,
     author: 'system',
-    body: `${harness.name} (${model}) started working on this task`
+    body: `${harness.name} (${model.name}) started working on this task`
       + (iso ? ` on its own branch (${iso.branch}).` : '.'),
   });
 
@@ -476,7 +490,7 @@ function resolveConflicts(taskId, task, iso, log, attempt) {
     body: `Another change landed on ${iso.base} first, so ${files.length} file(s) overlap. Asking the agent to reconcile them.`,
   });
 
-  const { harness, model } = forTask(task);
+  const { harness, provider, model } = forTask(task);
   spawnAgent({
     taskId,
     cwd: iso.wtPath,

@@ -77,17 +77,27 @@ function withComments(task) {
 }
 
 /**
- * A harness/model pair named by a client. Empty means "follow the default", which is a real choice
- * and not an error; only a value naming something that does not exist is rejected.
+ * A harness/provider/model triple named by a client. Empty means "follow the default", which is a
+ * real choice and not an error; only a value naming something that does not exist is rejected.
+ * Each level is checked against the one above, so a model is never accepted for a provider that
+ * cannot serve it.
  */
 function pickHarness(body) {
-  const harness = body.harness ? harnesses.byId(body.harness) : null;
-  if (body.harness && !harness) return { error: 'Unknown harness' };
-  if (!harness) return { harness: null, model: null };
-  if (body.model && !harness.models.some((m) => m.id === body.model)) {
-    return { error: `${harness.name} does not offer that model` };
+  const named = body.harness ? harnesses.byId(body.harness) : null;
+  if (body.harness && !named) return { error: 'Unknown harness' };
+
+  // A blank level is checked against whatever would stand in for it at run time, so pinning only the
+  // model — on the harness you already run by default — is accepted rather than rejected as unknown.
+  const base = agent.defaults();
+  const harness = named || base.harness;
+  const provider = body.provider
+    ? harness.providers.find((p) => p.id === body.provider)
+    : (named ? harness.providers[0] : base.provider);
+  if (!provider) return { error: `${harness.name} cannot use that model provider` };
+  if (body.model && !provider.models.some((m) => m.id === body.model)) {
+    return { error: `${harness.name} does not offer that model on ${provider.name}` };
   }
-  return { harness: harness.id, model: body.model || null };
+  return { harness: body.harness || null, provider: body.provider || null, model: body.model || null };
 }
 
 async function api(req, res, url) {
@@ -132,19 +142,22 @@ async function api(req, res, url) {
     return json(res, 200, { version, harnesses: harnesses.catalogue() });
   }
 
-  // /api/settings — the harness and model a task runs with unless it names its own
+  // /api/settings — what a task runs with unless it names its own
   if (a === 'settings') {
     const current = () => {
-      const { harness, model } = agent.defaults();
-      return { harness: harness.id, model };
+      const { harness, provider, model } = agent.defaults();
+      return { harness: harness.id, provider: provider.id, model: model.id };
     };
     if (method === 'GET') return json(res, 200, current());
     if (method === 'PUT') {
       if (!body.harness) return json(res, 400, { error: 'A default harness is required' });
       const pick = pickHarness(body);
       if (pick.error) return json(res, 400, { error: pick.error });
-      settings.set('harness', pick.harness);
-      settings.set('model', pick.model || harnesses.byId(pick.harness).models[0].id);
+      // Stored resolved rather than blank, so the default never silently shifts under a task.
+      const chosen = harnesses.resolve(pick.harness, pick.provider, pick.model);
+      settings.set('harness', chosen.harness.id);
+      settings.set('provider', chosen.provider.id);
+      settings.set('model', chosen.model.id);
       return json(res, 200, current());
     }
   }
@@ -235,7 +248,7 @@ async function api(req, res, url) {
         if (body.title !== undefined && !body.title.trim()) {
           return json(res, 400, { error: 'Task title is required' });
         }
-        if (body.harness !== undefined || body.model !== undefined) {
+        if (body.harness !== undefined || body.provider !== undefined || body.model !== undefined) {
           const pick = pickHarness(body);
           if (pick.error) return json(res, 400, { error: pick.error });
           Object.assign(body, pick);
@@ -316,8 +329,8 @@ server.listen(PORT, () => {
   if (r.closed) console.log(`closed ${r.closed} stale agent run record(s)`);
   if (r.reset) console.log(`reset ${r.reset} task(s) left active by a previous run`);
   console.log(`Vibe Wrangler running at http://localhost:${PORT}`);
-  const { harness, model } = agent.defaults();
-  console.log(`agent: ${harness.bin} ${harness.args(model).join(' ')}`);
+  const { harness, provider, model } = agent.defaults();
+  console.log(`agent: ${harness.bin} ${harness.args(model.id, '<prompt>').join(' ')} [${provider.name}]`);
 });
 
 module.exports = server;

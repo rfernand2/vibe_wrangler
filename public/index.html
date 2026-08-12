@@ -118,15 +118,18 @@
       <datalist id="tagOptions"></datalist>
       <small class="muted">Comma separated. Tags let you view related tasks across every project.</small>
     </label>
-    <div class="field-row">
+    <div class="field-row field-row-3">
       <label>Harness
         <select name="harness" id="taskHarness"></select>
+      </label>
+      <label>Model provider
+        <select name="provider" id="taskProvider"></select>
       </label>
       <label>Model
         <select name="model" id="taskModel"></select>
       </label>
     </div>
-    <small class="muted">Leave both on <em>Default</em> to follow Settings, so changing the default later moves this task too.</small>
+    <small class="muted">These open on the current default. Leave them alone and the task keeps following Settings, so changing the default later moves this task too.</small>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="taskDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
@@ -142,9 +145,12 @@
       <button type="button" class="icon-btn" data-close="settingsDialog" aria-label="Close">&times;</button>
     </div>
     <p class="muted">What every task runs with, unless it names its own harness on the task itself.</p>
-    <div class="field-row">
+    <div class="field-row field-row-3">
       <label>Default harness
         <select id="settingsHarness"></select>
+      </label>
+      <label>Model provider
+        <select id="settingsProvider"></select>
       </label>
       <label>Default model
         <select id="settingsModel"></select>

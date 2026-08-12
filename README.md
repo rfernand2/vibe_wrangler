@@ -4,9 +4,10 @@ A lightweight web app for managing **projects** and **tasks** that a **coding-ag
 
 It is built as a general harness for driving agent CLIs — the app owns the board, the git isolation, the
 process supervision and the progress reporting, and treats the agent itself as a swappable command it
-shells out to. **Claude Code** and **Codex** are both supported, and each task can name the one it wants.
-Everything that differs between them — the flags, and how to read their JSON event streams — lives in
-`harnesses.js`; adding a third is an entry in that list and nothing else.
+shells out to. **Claude Code**, **OpenAI Codex** and **Grok Build** are all supported, and each task can name
+the one it wants. Everything that differs between them — the flags, how the prompt is handed over, and how
+to read their JSON event streams — lives in `harnesses.js`; adding a fourth is an entry in that list and
+nothing else.
 
 The point: you keep a clean, human-readable board of work. The agent picks up tasks, does the work, and
 reports back in short, user-level comments — you never have to wade through tool calls, diffs, or token noise
@@ -56,29 +57,41 @@ Projects  ──▶  Tasks  ──▶  Comments
   branch holding the earlier attempt's work is never deleted out from under you.
 - **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
   This includes agents inherited from an earlier run of the app, not just ones this instance started.
-- **Harness & model** — **Settings** (under the ☰ menu, alongside **About**) picks the harness and model
-  every task runs with by default; a task can name its own instead. A task that names neither *follows*
-  the default rather than snapshotting it, so changing the default later moves it too.
+- **Harness, provider & model** — **Settings** (under the ☰ menu, alongside **About**) picks the three
+  every task runs with by default; a task can name its own instead. A task's dropdowns open on the
+  current default, and leaving them there means the task *follows* that default rather than
+  snapshotting it, so changing it later moves the task too. Change one and only that one is pinned.
+- **Model providers** — a harness's models are grouped by where they come from. Every harness offers
+  **Native** (its own vendor's models); Grok Build also offers **OpenRouter** and **Ollama**, so you can
+  run a task on a hosted third-party model or on one running locally. Picking one is all you do — the app
+  writes the model alias Grok needs into its config file before the run starts.
 - **Live** — the board updates itself. There is no Refresh button because there is nothing to refresh:
   the server pushes a notification whenever anything changes and every open tab refetches.
-- **Local & private** — everything lives in a single SQLite file. No cloud, no API keys.
+- **Local & private** — everything lives in a single SQLite file. No cloud, and no API keys unless you
+  choose a provider that needs one.
 
 ## Why a CLI (not the API)
 
 The agent is invoked by shelling out to its CLI in non-interactive mode. That means it uses
 **your existing subscription login** — there is no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to manage and no
-per-token billing. It also keeps the integration surface tiny: an agent is a command, a working directory
-and a stream of output, which is why supporting a second CLI was an entry in `harnesses.js` rather than a
-rewrite.
+per-token billing. (Routing Grok Build at OpenRouter is the one exception, and it's opt-in: that's a
+metered account you point it at deliberately.) It also keeps the integration surface tiny: an agent is a
+command, a working directory and a stream of output, which is why supporting a second CLI was an entry in
+`harnesses.js` rather than a rewrite.
 
 ## Requirements
 
 - **Node.js 22+** (uses the built-in `node:sqlite` module — no `npm install`, zero dependencies)
 - **At least one agent CLI** on your `PATH`, already logged in:
   - **Claude Code** (`claude` → `/login`)
-  - **Codex** (`codex login`)
+  - **OpenAI Codex** (`codex login`)
+  - **Grok Build** (`grok` → `/login`)
 
-  You only need the one you intend to run; the other simply won't start if selected.
+  You only need the one you intend to run; the others simply won't start if selected.
+- **Optional, for Grok Build's other providers:**
+  - **OpenRouter** — an `OPENROUTER_API_KEY` in your environment
+  - **Ollama** — [Ollama](https://ollama.com) running locally, with the model you pick already pulled
+    (`ollama pull qwen3-coder`)
 
 ## Quick start
 
@@ -112,10 +125,12 @@ PORT=4000 ./run.sh
 
 1. You create a project pointing at a repo directory.
 2. You add a task with a title and a description of what you want done — and, if you don't want the
-   default, the harness and model it should run on.
+   default, the harness, provider and model it should run on.
 3. Set the task to **ready** and hit **Run** (or **Run all ready** on the project).
-4. The app flips the task to **active**, resolves which harness and model the task runs on (its own choice,
-   or the default from Settings), and launches that CLI in the project directory with the prompt on stdin.
+4. The app flips the task to **active**, resolves which harness, provider and model the task runs on (its
+   own choice, or the default from Settings), makes sure that harness is set up to reach that provider, and
+   launches the CLI in the project directory with the prompt on stdin — or in a file, for a CLI that can't
+   read stdin.
 5. While it works, the app watches the agent's output for three prefixes and drops everything else:
 
    | Line | Becomes |
@@ -212,28 +227,45 @@ Environment variables:
 | `ATTACHMENT_MAX_BYTES` | `26214400` | Largest single upload accepted (25 MB) |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `CODEX_BIN` | `codex` | Path to the Codex CLI |
+| `GROK_BIN` | `grok` | Path to the Grok Build CLI |
+| `GROK_CONFIG` | `~/.grok/config.toml` | Grok's config file, where third-party model aliases are written |
 | `AGENT_HARNESS` | `claude` | Default harness before one has been saved in Settings |
-| `AGENT_MODEL` | first model of that harness | Default model before one has been saved in Settings |
+| `AGENT_PROVIDER` | first provider of that harness | Default provider before one has been saved in Settings |
+| `AGENT_MODEL` | first model of that provider | Default model before one has been saved in Settings |
 | `AGENT_EXIT_GRACE_MS` | `20000` | How long to wait for the CLI to exit after it reports its result |
 
-`AGENT_HARNESS` and `AGENT_MODEL` are only a starting point: once you save Settings the stored choice
-wins, because a default you picked in the app shouldn't be silently overridden by the environment.
-Naming a harness or model that no longer exists falls back to a working one rather than failing the run.
+`AGENT_HARNESS`, `AGENT_PROVIDER` and `AGENT_MODEL` are only a starting point: once you save Settings the
+stored choice wins, because a default you picked in the app shouldn't be silently overridden by the
+environment. Naming a harness, provider or model that no longer exists falls back to a working one rather
+than failing the run.
 
 The agents are invoked as:
 
 ```
 claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <model>
 codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model <model> -
+grok --prompt-file <file> --output-format streaming-json --permission-mode bypassPermissions --model <model>
 ```
 
-Both read the task prompt from stdin.
+Claude Code and Codex read the task prompt from stdin. Grok has no stdin mode and takes the prompt as an
+argument, which a long description would overflow on Windows, so it gets a file written beside the run's log.
+
+### Third-party models
+
+Grok only reaches an endpoint other than xAI's through a named alias in its own config file, so choosing an
+OpenRouter or Ollama model means that alias has to exist before the CLI starts. The app writes it for you,
+as a `[model.<name>]` block appended to `GROK_CONFIG`. An alias already in the file is left alone — it may
+have been tuned by hand, and clobbering someone's credentials or context window would be worse than doing
+nothing. The credential itself is never written: OpenRouter aliases point at `OPENROUTER_API_KEY` in your
+environment, and Ollama needs none.
+
+Deleting a block from that file is enough to have it rewritten from the app's defaults on the next run.
 
 ## Permissions (read this)
 
 **Every harness runs with its approvals turned off** — `--dangerously-skip-permissions` for Claude Code,
-`--dangerously-bypass-approvals-and-sandbox` for Codex. Every action either would normally stop and ask you
-to approve — editing files, deleting them, running builds, running arbitrary shell commands, installing
+`--dangerously-bypass-approvals-and-sandbox` for Codex, `--permission-mode bypassPermissions` for Grok Build.
+Every action any of them would normally stop and ask you to approve — editing files, deleting them, running builds, running arbitrary shell commands, installing
 packages, making network requests — happens automatically, with no prompt and no undo.
 
 This is not a setting you can turn off here; it is the premise of the tool. The whole point is that tasks run
@@ -262,7 +294,7 @@ It is not a security boundary and does nothing to contain a command the agent ch
 server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
 agent.js           Spawns the agent CLI and turns its output into comments and checklist ticks
-harnesses.js       Harness catalogue: how each agent CLI is launched, and how its events are read
+harnesses.js       Harness catalogue: how each agent CLI is launched, set up, and how its events are read
 git.js             Worktree / branch / merge plumbing for concurrent tasks
 proc.js            Liveness, identity and tree-kill for agent processes
 events.js          Server-sent change notifications that keep open tabs current
@@ -283,8 +315,8 @@ npm test
 Two suites, neither of which invokes a real agent CLI — both are fast and free.
 
 - `test/smoke.js` spins the server up on a spare port against a temporary database and exercises the
-  whole API: CRUD, tags, status filtering, cascade deletes, harness/model selection, and the agent's
-  failure paths.
+  whole API: CRUD, tags, status filtering, cascade deletes, harness/provider/model selection, and the
+  agent's failure paths.
 - `test/worktree.js` builds throwaway git repos and runs two agents on one repo at the same time,
   using a scripted stand-in for the CLI. It checks that both changes land, that a genuine merge
   conflict is resolved without losing either side, that non-git projects fall back to a queue, and
@@ -319,8 +351,8 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
 | `GET` | `/api/statuses` | Known status values (built-in + user-defined) |
-| `GET` | `/api/config` | App version and the harness catalogue with each harness's models |
-| `GET` | `/api/settings` | The default harness and model |
+| `GET` | `/api/config` | App version and the harness catalogue: each harness, its providers, their models |
+| `GET` | `/api/settings` | The default harness, provider and model |
 | `PUT` | `/api/settings` | Change them |
 | `GET` | `/api/events` | Change notification stream (server-sent events) |
 

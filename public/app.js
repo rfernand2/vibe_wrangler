@@ -6,7 +6,7 @@ const state = {
   view: 'project', // 'project' | 'all'
   version: '',
   harnesses: [],
-  settings: { harness: '', model: '' },
+  settings: { harness: '', provider: '', model: '' },
   projects: [],
   projectId: null,
   filter: 'all',
@@ -552,8 +552,10 @@ window.addEventListener('scroll', closeAppMenu, true);
 
 const harnessById = (id) => state.harnesses.find((h) => h.id === id);
 const harnessName = (id) => harnessById(id)?.name || id;
-const modelName = (harnessId, modelId) =>
-  harnessById(harnessId)?.models.find((m) => m.id === modelId)?.name || modelId;
+const providerById = (harnessId, providerId) =>
+  harnessById(harnessId)?.providers.find((p) => p.id === providerId);
+const modelName = (harnessId, providerId, modelId) =>
+  providerById(harnessId, providerId)?.models.find((m) => m.id === modelId)?.name || modelId;
 
 function option(value, label) {
   const o = document.createElement('option');
@@ -562,38 +564,67 @@ function option(value, label) {
   return o;
 }
 
-const defaultLabel = () => `${harnessName(state.settings.harness)} · ${modelName(state.settings.harness, state.settings.model)}`;
+/** A provider worth naming is one the human chose; "Native" is just where the models live. */
+const describe = (harnessId, providerId, modelId) => {
+  const provider = providerById(harnessId, providerId);
+  const via = provider && provider.id !== 'native' ? ` via ${provider.name}` : '';
+  return `${harnessName(harnessId)} · ${modelName(harnessId, providerId, modelId)}${via}`;
+};
+
+const defaultLabel = () =>
+  describe(state.settings.harness, state.settings.provider, state.settings.model);
 
 /** What a task will actually run with — its own choice, or the default it is still following. */
 function harnessLabel(t) {
   if (!t.harness) return `${defaultLabel()} (default)`;
-  const model = t.model || harnessById(t.harness)?.models[0].id;
-  return `${harnessName(t.harness)} · ${modelName(t.harness, model)}`;
+  const provider = providerById(t.harness, t.provider) || harnessById(t.harness)?.providers[0];
+  return describe(t.harness, provider?.id, t.model || provider?.models[0].id);
 }
 
-/** The model list belongs to the harness, so it is rebuilt whenever the harness changes. */
-function fillTaskModels(model) {
-  const chosen = $('taskHarness').value;
-  const h = harnessById(chosen || state.settings.harness);
-  if (!h) return;
-  const sel = $('taskModel');
-  sel.replaceChildren(option('', `Default (${modelName(h.id, chosen ? h.models[0].id : state.settings.model)})`));
-  for (const m of h.models) sel.append(option(m.id, m.name));
-  sel.value = model || '';
+/**
+ * The three selects cascade: a provider belongs to a harness and a model to a provider, so each list
+ * is rebuilt from the one above it, and a choice that does not exist under the new parent falls back
+ * to its first entry rather than leaving the select on something unrunnable.
+ */
+const TASK_SELECTS = { harness: 'taskHarness', provider: 'taskProvider', model: 'taskModel' };
+const SETTINGS_SELECTS = {
+  harness: 'settingsHarness', provider: 'settingsProvider', model: 'settingsModel',
+};
+
+function fillModels(ids, model) {
+  const p = providerById($(ids.harness).value, $(ids.provider).value);
+  const sel = $(ids.model);
+  sel.replaceChildren(...p.models.map((m) => option(m.id, m.name)));
+  sel.value = p.models.some((m) => m.id === model) ? model : p.models[0].id;
 }
 
-function fillTaskHarness(task) {
-  const sel = $('taskHarness');
-  sel.replaceChildren(option('', `Default (${harnessName(state.settings.harness)})`));
-  for (const h of state.harnesses) sel.append(option(h.id, h.name));
-  sel.value = task?.harness || '';
-  fillTaskModels(task?.model);
-  // Switching harness invalidates whatever model was picked for the previous one.
-  sel.onchange = () => fillTaskModels('');
+function fillProviders(ids, provider, model) {
+  const h = harnessById($(ids.harness).value);
+  const sel = $(ids.provider);
+  sel.replaceChildren(...h.providers.map((p) => option(p.id, p.name)));
+  sel.value = h.providers.some((p) => p.id === provider) ? provider : h.providers[0].id;
+  fillModels(ids, model);
+  sel.onchange = () => fillModels(ids, null);
 }
 
+function fillHarness(ids, { harness, provider, model }) {
+  const sel = $(ids.harness);
+  sel.replaceChildren(...state.harnesses.map((h) => option(h.id, h.name)));
+  sel.value = harnessById(harness) ? harness : state.harnesses[0].id;
+  fillProviders(ids, provider, model);
+  sel.onchange = () => fillProviders(ids, null, null);
+}
+
+/** A task that has not chosen opens showing the default, which is what it would run with today. */
+const fillTaskHarness = (task) => fillHarness(TASK_SELECTS, {
+  harness: task?.harness || state.settings.harness,
+  provider: task?.provider || state.settings.provider,
+  model: task?.model || state.settings.model,
+});
+
+/** The harnesses the app can drive at all — a fact about the build, not about the current default. */
 function showAgentInfo() {
-  $('agentInfo').textContent = `agent: ${defaultLabel()}`;
+  $('agentInfo').textContent = state.harnesses.map((h) => h.name).join(', ');
 }
 
 /* ---------- Task drawer ---------- */
@@ -813,13 +844,17 @@ $('detailEditBtn').onclick = () => {
 };
 $('taskForm').addEventListener('submit', run(async (e) => {
   const f = e.target;
+  // A pick that matches the default is stored as no pick at all, so the task goes on following
+  // Settings instead of freezing today's answer the moment anyone opens this dialog.
+  const choice = (name) => (f[name].value === state.settings[name] ? '' : f[name].value);
   const payload = {
     title: f.title.value.trim(),
     description: f.description.value.trim(),
     status: f.status.value.trim() || 'ready',
     tags: f.tags.value,
-    harness: f.harness.value,
-    model: f.model.value,
+    harness: choice('harness'),
+    provider: choice('provider'),
+    model: choice('model'),
   };
   if (editingTask) await api('PUT', `/api/tasks/${editingTask.id}`, payload);
   else await api('POST', `/api/projects/${state.projectId}/tasks`, payload);
@@ -918,25 +953,15 @@ $('agentsBtn').onclick = run(async () => {
   await renderAgents();
 });
 
-function fillSettingsModels(model) {
-  const h = harnessById($('settingsHarness').value);
-  const sel = $('settingsModel');
-  sel.replaceChildren(...h.models.map((m) => option(m.id, m.name)));
-  sel.value = h.models.some((m) => m.id === model) ? model : h.models[0].id;
-}
-
 function openSettings() {
-  const hs = $('settingsHarness');
-  hs.replaceChildren(...state.harnesses.map((h) => option(h.id, h.name)));
-  hs.value = state.settings.harness;
-  fillSettingsModels(state.settings.model);
-  hs.onchange = () => fillSettingsModels(null);
+  fillHarness(SETTINGS_SELECTS, state.settings);
   openDialog('settingsDialog');
 }
 
 $('settingsForm').addEventListener('submit', run(async () => {
   state.settings = await api('PUT', '/api/settings', {
     harness: $('settingsHarness').value,
+    provider: $('settingsProvider').value,
     model: $('settingsModel').value,
   });
   showAgentInfo();

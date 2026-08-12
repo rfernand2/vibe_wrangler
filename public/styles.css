@@ -269,8 +269,9 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 
-/* Two fields that only mean anything read together, kept on one line. */
+/* Fields that only mean anything read together, kept on one line. */
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-row-3 { grid-template-columns: 1fr 1fr 1fr; }
 
 .about-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0; font-size: 13px; }
 .about-list dt { color: var(--muted); }

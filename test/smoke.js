@@ -13,6 +13,8 @@ process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
 process.env.VIBE_WRANGLER_ATTACHMENTS = path.join(tmp, 'attachments');
 process.env.PORT = '38111';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
+// So writing a Grok model alias in a test never touches the real ~/.grok/config.toml.
+process.env.GROK_CONFIG = path.join(tmp, 'grok.toml');
 
 const server = require('../server');
 const base = `http://localhost:${process.env.PORT}`;
@@ -319,46 +321,75 @@ async function main() {
   const harnesses = require('../harnesses');
   const config = (await call('GET', '/api/config')).body;
   assert.ok(config.version, 'reports its version');
-  assert.deepEqual(config.harnesses.map((h) => h.id), ['claude', 'codex']);
-  assert.ok(config.harnesses[0].models.length, 'each harness offers models');
-  ok('publishes the harness catalogue');
+  assert.deepEqual(config.harnesses.map((h) => h.id), ['claude', 'codex', 'grok']);
+  assert.ok(config.harnesses[0].providers[0].models.length, 'each provider offers models');
+  const grokCat = config.harnesses.find((h) => h.id === 'grok');
+  assert.deepEqual(grokCat.providers.map((p) => p.id), ['native', 'openrouter', 'ollama']);
+  ok('publishes the harness catalogue, models grouped under their provider');
 
   // These are the event shapes each CLI actually emits; the directives are read out of them.
-  const claude = harnesses.byId('claude');
+  const claude = harnesses.byId('claude').reader();
   assert.deepEqual(
-    claude.read({ type: 'assistant', message: { content: [{ type: 'text', text: 'NOTE: hi' }] } }),
+    claude({ type: 'assistant', message: { content: [{ type: 'text', text: 'NOTE: hi' }] } }),
     { text: 'NOTE: hi' });
   assert.deepEqual(
-    claude.read({ type: 'result', subtype: 'success', result: 'all done' }),
+    claude({ type: 'result', subtype: 'success', result: 'all done' }),
     { done: true, text: 'all done', failed: false });
-  assert.equal(claude.read({ type: 'system' }), null);
+  assert.equal(claude({ type: 'system' }), null);
 
-  const codex = harnesses.byId('codex');
+  const codex = harnesses.byId('codex').reader();
   assert.deepEqual(
-    codex.read({ type: 'item.completed', item: { type: 'agent_message', text: 'NOTE: hi' } }),
+    codex({ type: 'item.completed', item: { type: 'agent_message', text: 'NOTE: hi' } }),
     { text: 'NOTE: hi' });
-  assert.deepEqual(codex.read({ type: 'turn.completed', usage: {} }), { done: true, failed: false });
-  assert.deepEqual(codex.read({ type: 'turn.failed', error: {} }), { done: true, failed: true });
-  assert.equal(codex.read({ type: 'item.completed', item: { type: 'reasoning' } }), null);
+  assert.deepEqual(codex({ type: 'turn.completed', usage: {} }), { done: true, failed: false });
+  assert.deepEqual(codex({ type: 'turn.failed', error: {} }), { done: true, failed: true });
+  assert.equal(codex({ type: 'item.completed', item: { type: 'reasoning' } }), null);
   ok('each harness reads its own event stream');
 
-  assert.deepEqual((await call('GET', '/api/settings')).body, { harness: 'claude', model: 'claude-opus-5' });
+  // Grok streams a token at a time, so a directive only becomes matchable once buffered to a line.
+  const grokRead = harnesses.byId('grok').reader();
+  assert.equal(grokRead({ type: 'thought', data: 'hmm' }), null);
+  assert.equal(grokRead({ type: 'text', data: 'NO' }), null);
+  assert.equal(grokRead({ type: 'text', data: 'TE: hi' }), null);
+  assert.deepEqual(grokRead({ type: 'text', data: '\nand more' }), { text: 'NOTE: hi' });
+  assert.deepEqual(grokRead({ type: 'end', stopReason: 'EndTurn' }),
+    { done: true, text: 'NOTE: hi\nand more', failed: false });
+  assert.ok(harnesses.byId('grok').reader()({ type: 'end', stopReason: 'Error' }).failed);
+  ok('a token-streamed transcript is buffered into whole lines');
+
+  // Reaching a non-xAI endpoint means an alias has to exist in Grok's own config before it starts.
+  const { harness: gh, provider: gp, model: gm } = harnesses.resolve('grok', 'ollama', 'ollama-devstral');
+  gh.prepare(gp, gm);
+  const toml = fs.readFileSync(process.env.GROK_CONFIG, 'utf8');
+  assert.match(toml, /\[model\.ollama-devstral\]/);
+  assert.match(toml, /model = "devstral"/);
+  assert.match(toml, /base_url = "http:\/\/localhost:11434\/v1"/);
+  gh.prepare(gp, gm);
+  assert.equal(toml, fs.readFileSync(process.env.GROK_CONFIG, 'utf8'), 'writes the alias only once');
+  const xai = harnesses.resolve('grok', 'native', 'grok-4.5');
+  gh.prepare(xai.provider, xai.model);
+  assert.equal(toml, fs.readFileSync(process.env.GROK_CONFIG, 'utf8'), 'a native model needs no alias');
+  ok('registers a third-party model with the Grok CLI, without clobbering the config');
+
+  assert.deepEqual((await call('GET', '/api/settings')).body,
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
   ok('defaults to the first model of the first harness');
 
   assert.equal((await call('PUT', '/api/settings', { harness: 'nope' })).status, 400);
   assert.equal((await call('PUT', '/api/settings', { harness: 'codex', model: 'claude-opus-5' })).status, 400);
-  ok('rejects a harness or model that does not exist');
+  assert.equal((await call('PUT', '/api/settings', { harness: 'claude', provider: 'ollama' })).status, 400);
+  ok('rejects a harness, provider, or model that does not exist');
 
   const defaults = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
-  assert.deepEqual(defaults, { harness: 'codex', model: 'gpt-5.6-terra' });
+  assert.deepEqual(defaults, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra' });
   assert.deepEqual((await call('GET', '/api/settings')).body, defaults);
-  ok('remembers the default harness and model');
+  ok('remembers the default harness, provider, and model');
 
   const { tasks: taskStore } = require('../db');
   const { forTask } = require('../agent');
   const resolved = (id) => {
     const r = forTask(taskStore.get(id));
-    return { harness: r.harness.id, model: r.model };
+    return { harness: r.harness.id, provider: r.provider.id, model: r.model.id };
   };
 
   const inherits = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Inherits' })).body;
@@ -368,20 +399,43 @@ async function main() {
   const pinned = (await call('POST', `/api/projects/${proj.id}/tasks`, {
     title: 'Pinned', harness: 'claude', model: 'claude-haiku-4-5-20251001',
   })).body;
-  assert.deepEqual(resolved(pinned.id), { harness: 'claude', model: 'claude-haiku-4-5-20251001' });
+  assert.deepEqual(resolved(pinned.id),
+    { harness: 'claude', provider: 'native', model: 'claude-haiku-4-5-20251001' });
 
   // Naming only a harness must take that harness's own first model, not the default set for Codex.
   const halfPinned = (await call('POST', `/api/projects/${proj.id}/tasks`, {
     title: 'Half pinned', harness: 'claude',
   })).body;
-  assert.deepEqual(resolved(halfPinned.id), { harness: 'claude', model: 'claude-opus-5' });
+  assert.deepEqual(resolved(halfPinned.id),
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
   ok('a task can override the harness, the model, or both');
 
+  const viaOllama = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'Local', harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder',
+  })).body;
+  assert.deepEqual(resolved(viaOllama.id),
+    { harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder' });
+  ok('a task can name the provider its model comes from');
+
+  // Pinning only the model is what the dialog sends when you change nothing but the model, so it has
+  // to be checked against the default harness rather than rejected as belonging to nothing.
+  const modelOnly = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'Model only', model: 'gpt-5.6-luna',
+  })).body;
+  assert.equal(modelOnly.harness, null);
+  assert.deepEqual(resolved(modelOnly.id),
+    { harness: 'codex', provider: 'native', model: 'gpt-5.6-luna' });
+  ok('a task can pin the model alone and still follow the default harness');
+
+  assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`,
+    { title: 'Bad', model: 'claude-opus-5' })).status, 400);
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`,
     { title: 'Bad', harness: 'codex', model: 'claude-opus-5' })).status, 400);
-  ok('rejects a task naming a model its harness does not offer');
+  assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`,
+    { title: 'Bad', harness: 'grok', provider: 'ollama', model: 'grok-4.5' })).status, 400);
+  ok('rejects a task naming a model its harness or provider does not offer');
 
-  await call('PUT', `/api/tasks/${pinned.id}`, { harness: '', model: '' });
+  await call('PUT', `/api/tasks/${pinned.id}`, { harness: '', provider: '', model: '' });
   assert.deepEqual(resolved(pinned.id), defaults, 'clearing the override returns it to the default');
   await call('PUT', `/api/tasks/${pinned.id}`, { title: 'Pinned again' });
   assert.equal(taskStore.get(pinned.id).harness, null, 'an unrelated edit leaves the choice alone');
