@@ -13,6 +13,7 @@ process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
 process.env.VIBE_WRANGLER_ATTACHMENTS = path.join(tmp, 'attachments');
 process.env.PORT = '38111';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
+process.env.GROK_BIN = 'definitely-not-a-real-binary';
 // So writing a Grok model alias in a test never touches the real ~/.grok/config.toml.
 process.env.GROK_CONFIG = path.join(tmp, 'grok.toml');
 
@@ -234,6 +235,23 @@ async function main() {
   assert.equal(log.status, 200);
   assert.match(log.body, /Reporting protocol/, 'log contains the prompt that was sent');
   ok('exposes the raw transcript');
+
+  // A harness that is set up before it starts, and reads its prompt from a file, takes a different
+  // path through the spawn than Claude Code does — one no other test walks.
+  const viaFile = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'File prompt', harness: 'grok', model: 'grok-4.5',
+  })).body;
+  await call('POST', `/api/tasks/${viaFile.id}/run`);
+  for (let i = 0; i < 40 && (await call('GET', `/api/tasks/${viaFile.id}`)).body.status === 'active'; i++) {
+    await sleep(100);
+  }
+  const fileRun = (await call('GET', `/api/tasks/${viaFile.id}`)).body;
+  assert.equal(fileRun.status, 'failed', 'a harness that cannot start fails rather than sitting active');
+  assert.ok(fileRun.comments.some((c) => /Grok Build CLI/i.test(c.body)), 'explains the spawn failure');
+  assert.match(
+    fs.readFileSync(path.join(process.env.VIBE_WRANGLER_LOGS, `${fileRun.log_file}.prompt.txt`), 'utf8'),
+    /Reporting protocol/, 'the prompt is written beside the log');
+  ok('a file-prompt harness is prepared, given its prompt, and fails cleanly');
 
   // --- run-ready only picks up ready tasks ---
   await call('PUT', `/api/tasks/${t1.id}`, { status: 'ready' });

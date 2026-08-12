@@ -12,6 +12,9 @@ const harnesses = require('./harnesses');
 const LOG_DIR = process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs');
 const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname, 'data', 'worktrees');
 
+/** Logs are stored by name so the directory can move; anything touching the file needs it back. */
+const logPath = (name) => (name ? path.join(LOG_DIR, name) : null);
+
 /** Base moving under us is expected when tasks finish together; give up after this many rounds. */
 const MAX_MERGE_ATTEMPTS = 3;
 
@@ -416,6 +419,7 @@ function runTask(taskId) {
     iso,
     logFile,
     harness,
+    provider,
     model,
     onDone: (result) => {
       if (result.status === 'spawn-error') return finish(taskId, 'failed', result.message, log);
@@ -497,8 +501,11 @@ function resolveConflicts(taskId, task, iso, log, attempt) {
     prompt: buildConflictPrompt(task, iso, files),
     log,
     iso,
-    logFile: tasks.get(taskId)?.log_file,
+    // A full path, not the stored basename: a prompt written beside the log has to land there and
+    // not wherever the process happens to be running.
+    logFile: logPath(tasks.get(taskId)?.log_file),
     harness,
+    provider,
     model,
     onDone: (result) => {
       if (result.status !== 'ok') {
