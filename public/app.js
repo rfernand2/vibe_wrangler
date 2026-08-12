@@ -449,10 +449,13 @@ function renderTasks() {
 
     const taskState = document.createElement('div');
     taskState.className = 'task-state';
-    const agentName = document.createElement('span');
-    agentName.className = 'task-agent';
-    agentName.textContent = harnessName(taskAgentId(t, state.settings.harness));
-    taskState.append(pill, agentName);
+    // Model names are longer than the harness names this column was sized for, so the ones that
+    // get an ellipsis are still readable on hover rather than lost.
+    const agent = document.createElement('span');
+    agent.className = 'task-agent';
+    agent.textContent = agentName(state.harnesses, taskAgent(t, state.settings));
+    agent.title = agent.textContent;
+    taskState.append(pill, agent);
 
     // Grading in the row means a finished run can be rated without opening the task first.
     const grade = document.createElement('select');

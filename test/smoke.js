@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
-const { taskAgentId } = require('../public/task-agent');
+const { taskAgent, agentName } = require('../public/task-agent');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -53,11 +53,30 @@ async function main() {
   assert.match(index.body, /Vibe Wrangler/);
   ok('serves the front end');
 
-  assert.equal(taskAgentId({ status: 'ready', harness: null, last_harness: 'claude' }, 'codex'), 'codex');
-  assert.equal(taskAgentId({ status: 'ready', harness: 'grok', last_harness: 'claude' }, 'codex'), 'grok');
-  assert.equal(taskAgentId({ status: 'active', harness: null, last_harness: 'claude' }, 'codex'), 'claude');
-  assert.equal(taskAgentId({ status: 'completed', harness: 'grok', last_harness: 'claude' }, 'codex'), 'claude');
-  ok('chooses the agent name shown beneath each task status');
+  const DEFAULTS = { harness: 'codex', provider: 'native', model: 'gpt-5.6-sol' };
+  const ran = { last_harness: 'claude', last_provider: 'native', last_model: 'claude-opus-5' };
+  const chose = { harness: 'grok', provider: 'native', model: 'grok-4.6' };
+  assert.deepEqual(taskAgent({ status: 'ready', ...ran }, DEFAULTS), DEFAULTS);
+  assert.deepEqual(taskAgent({ status: 'ready', ...chose, ...ran }, DEFAULTS), chose);
+  assert.deepEqual(taskAgent({ status: 'active', ...ran }, DEFAULTS),
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
+  assert.deepEqual(taskAgent({ status: 'completed', ...chose, ...ran }, DEFAULTS),
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
+  // A task that named only a harness must not borrow the default's model to fill the gap.
+  assert.deepEqual(taskAgent({ status: 'ready', harness: 'grok' }, DEFAULTS),
+    { harness: 'grok', provider: undefined, model: undefined });
+  ok('picks the model whose name is shown beneath each task status');
+
+  // The name on the row is the agent — "Grok 4.6" — never the harness that launched it.
+  const cat = require('../harnesses').snapshot();
+  assert.equal(agentName(cat, { harness: 'grok', provider: 'native', model: 'grok-4.6' }), 'Grok 4.6');
+  assert.equal(agentName(cat, { harness: 'grok' }), 'Grok 4.6');
+  assert.equal(agentName(cat, { harness: 'claude', provider: 'native', model: 'claude-opus-5' }), 'Opus 5');
+  assert.equal(agentName(cat, taskAgent({ status: 'completed', harness: 'claude' }, DEFAULTS)), 'Opus 5');
+  // A model dropped from the catalogue since the run still says more than its harness would.
+  assert.equal(agentName(cat, { harness: 'grok', provider: 'native', model: 'grok-3' }), 'grok-3');
+  assert.equal(agentName(cat, {}), '');
+  ok('names the agent, not the harness that launched it');
 
   assert.equal((await call('GET', '/../db.js')).status, 404);
   ok('rejects path traversal on static files');
@@ -540,6 +559,19 @@ async function main() {
   assert.deepEqual(resolved(viaOllama.id),
     { harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder-30b' });
   ok('a task can name the provider its model comes from');
+
+  // What the Tasks view would print for rows exactly as the API hands them back, resolved through
+  // the same catalogue the browser is given — the end of the path the row's second line depends on.
+  const browserCat = (await call('GET', '/api/config')).body.harnesses;
+  const rows = (await call('GET', '/api/tasks')).body;
+  const named = (title) =>
+    agentName(browserCat, taskAgent(rows.find((r) => r.title === title), defaults));
+  assert.equal(named('Inherits'), 'GPT-5.6 Terra');
+  assert.equal(named('Half pinned'), 'Opus 5');
+  assert.equal(named('Local'), 'qwen3-coder:30b');
+  // A task that has run is named by what ran, which is where a since-retargeted task would differ.
+  assert.equal(named('File prompt'), 'Grok 4.5');
+  ok('the row names the agent for tasks as the API returns them');
 
   // Pinning only the model is what the dialog sends when you change nothing but the model, so it has
   // to be checked against the default harness rather than rejected as belonging to nothing.
