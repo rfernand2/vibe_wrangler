@@ -260,6 +260,13 @@ function defaults() {
 }
 
 /**
+ * Whether a new task that names nothing is dealt a harness at random rather than following the
+ * default. It lives beside the defaults because it answers the same question — what a task runs
+ * with when the human did not say — and it is only ever read as a task is being created.
+ */
+const randomEnabled = () => settings.get('random_harness') === '1';
+
+/**
  * A task naming a harness but no model takes that harness's own first model — never the one picked
  * for a different harness, which would not exist there. The same goes for a provider.
  */
@@ -941,5 +948,5 @@ module.exports = {
   runTask, stopTask, runReady, runFailed, isRunning, readLog,
   reply, canChat, isReplying, CHAT_STATUSES,
   adoptOrphans, listAgents, killAgent,
-  defaults, forTask, WORKTREE_DIR,
+  defaults, forTask, randomEnabled, WORKTREE_DIR,
 };

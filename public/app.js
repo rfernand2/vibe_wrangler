@@ -7,7 +7,7 @@ const state = {
   view: 'project', // 'project' | 'all'
   version: '',
   harnesses: [],
-  settings: { harness: '', provider: '', model: '' },
+  settings: { harness: '', provider: '', model: '', random: false },
   projects: [],
   projectId: null,
   filter: 'all',
@@ -726,12 +726,25 @@ function fillHarness(ids, { harness, provider, model }) {
   sel.onchange = () => fillProviders(ids, null, null);
 }
 
-/** A task that has not chosen opens showing the default, which is what it would run with today. */
-const fillTaskHarness = (task) => fillHarness(TASK_SELECTS, {
-  harness: task?.harness || state.settings.harness,
-  provider: task?.provider || state.settings.provider,
-  model: task?.model || state.settings.model,
-});
+const FOLLOWS_DEFAULT = 'These open on the current default. Leave them alone and the task keeps'
+  + ' following Settings, so changing the default later moves this task too.';
+const DEALT_AT_RANDOM = 'Settings is dealing each new task a harness at random. Leave these alone'
+  + ' and this task gets one by lot, on its top model, and keeps it. Change any of them and the'
+  + ' task runs with what you picked instead.';
+
+/**
+ * A task that has not chosen opens showing the default, which is what it would run with today —
+ * except on a new task while the draw is on, where the default is not what it would run with and
+ * saying so is the only warning the human gets before the dice decide.
+ */
+const fillTaskHarness = (task) => {
+  fillHarness(TASK_SELECTS, {
+    harness: task?.harness || state.settings.harness,
+    provider: task?.provider || state.settings.provider,
+    model: task?.model || state.settings.model,
+  });
+  $('taskHarnessHint').textContent = !task && state.settings.random ? DEALT_AT_RANDOM : FOLLOWS_DEFAULT;
+};
 
 /** The harnesses the app can drive at all — a fact about the build, not about the current default. */
 function showAgentInfo() {
@@ -1198,6 +1211,7 @@ $('performanceBtn').onclick = run(async () => {
 
 function openSettings() {
   fillHarness(SETTINGS_SELECTS, state.settings);
+  $('settingsRandom').checked = state.settings.random;
   openDialog('settingsDialog');
 }
 
@@ -1206,6 +1220,7 @@ $('settingsForm').addEventListener('submit', run(async () => {
     harness: $('settingsHarness').value,
     provider: $('settingsProvider').value,
     model: $('settingsModel').value,
+    random: $('settingsRandom').checked,
   });
   showAgentInfo();
   // Every task following the default now reads differently, on the board and in the drawer.
@@ -1217,7 +1232,11 @@ $('settingsForm').addEventListener('submit', run(async () => {
 function openAbout() {
   $('aboutVersion').textContent = state.version;
   $('aboutHarnesses').textContent = state.harnesses.map((h) => h.name).join(', ');
-  $('aboutDefault').textContent = defaultLabel();
+  // "Running with" is a promise about the next task, so the draw has to be named here or the line
+  // is simply wrong for every task made while it is on.
+  $('aboutDefault').textContent = state.settings.random
+    ? `A harness at random · ${defaultLabel()} for tasks made before that was turned on`
+    : defaultLabel();
   openDialog('aboutDialog');
 }
 

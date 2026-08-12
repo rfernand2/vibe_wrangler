@@ -128,7 +128,7 @@
         <select name="model" id="taskModel"></select>
       </label>
     </div>
-    <small class="muted">These open on the current default. Leave them alone and the task keeps following Settings, so changing the default later moves this task too.</small>
+    <small class="muted" id="taskHarnessHint">These open on the current default. Leave them alone and the task keeps following Settings, so changing the default later moves this task too.</small>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="taskDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>
@@ -155,6 +155,15 @@
         <select id="settingsModel"></select>
       </label>
     </div>
+    <label class="check-row">
+      <input type="checkbox" id="settingsRandom">
+      <span>Give each new task a harness at random
+        <small>Every task created from now on is dealt one of the harnesses by lot, on its own top
+          model, and keeps it. Grade the results and the performance chart says which one is doing
+          better. Tasks that already exist, and any task where you pick a harness yourself, are
+          left alone.</small>
+      </span>
+    </label>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="settingsDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>

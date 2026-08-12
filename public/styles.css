@@ -313,6 +313,12 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 
+/* A tickbox reads as one line with the thing it turns on, not as a field stacked under a caption. */
+.check-row { display: flex; align-items: flex-start; gap: 9px; color: var(--text); }
+.check-row input { width: auto; margin: 2px 0 0; accent-color: var(--accent); }
+.check-row span { display: grid; gap: 3px; }
+.check-row small { color: var(--muted); }
+
 /* Fields that only mean anything read together, kept on one line. */
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-row-3 { grid-template-columns: 1fr 1fr 1fr; }

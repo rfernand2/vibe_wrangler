@@ -159,7 +159,9 @@ async function api(req, res, url) {
   if (a === 'settings') {
     const current = () => {
       const { harness, provider, model } = agent.defaults();
-      return { harness: harness.id, provider: provider.id, model: model.id };
+      return {
+        harness: harness.id, provider: provider.id, model: model.id, random: agent.randomEnabled(),
+      };
     };
     if (method === 'GET') return json(res, 200, current());
     if (method === 'PUT') {
@@ -171,6 +173,9 @@ async function api(req, res, url) {
       settings.set('harness', chosen.harness.id);
       settings.set('provider', chosen.provider.id);
       settings.set('model', chosen.model.id);
+      // Absent leaves it alone: a client that predates the option should not switch it off by
+      // saving the harness default, which is a separate choice that happens to share this form.
+      if (body.random !== undefined) settings.set('random_harness', body.random ? '1' : '0');
       return json(res, 200, current());
     }
   }
@@ -218,13 +223,18 @@ async function api(req, res, url) {
           if (!body.title?.trim()) return json(res, 400, { error: 'Task title is required' });
           const pick = pickHarness(body);
           if (pick.error) return json(res, 400, { error: pick.error });
+          // Nobody said what to run this with and the setting says deal one out. The draw is pinned
+          // to the task rather than re-rolled at run time, so a task keeps the harness it was given
+          // across a retry and the grade it earns stays attached to the one that earned it.
+          const named = pick.harness || pick.provider || pick.model;
+          const chosen = !named && agent.randomEnabled() ? harnesses.randomChoice() : pick;
           return json(res, 201, tasks.create({
             project_id: id,
             title: body.title.trim(),
             description: body.description || '',
             status: (body.status || 'ready').trim() || 'ready',
             tags: body.tags ?? [],
-            ...pick,
+            ...chosen,
           }));
         }
       }

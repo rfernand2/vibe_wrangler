@@ -496,7 +496,7 @@ async function main() {
   ok('a run that cannot work is stopped before a worktree is made for it');
 
   assert.deepEqual((await call('GET', '/api/settings')).body,
-    { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5', random: false });
   ok('defaults to the first model of the first harness');
 
   assert.equal((await call('PUT', '/api/settings', { harness: 'nope' })).status, 400);
@@ -504,10 +504,12 @@ async function main() {
   assert.equal((await call('PUT', '/api/settings', { harness: 'claude', provider: 'ollama' })).status, 400);
   ok('rejects a harness, provider, or model that does not exist');
 
-  const defaults = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
-  assert.deepEqual(defaults, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra' });
-  assert.deepEqual((await call('GET', '/api/settings')).body, defaults);
+  const stored = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
+  assert.deepEqual(stored, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra', random: false });
+  assert.deepEqual((await call('GET', '/api/settings')).body, stored);
   ok('remembers the default harness, provider, and model');
+
+  const { random: _drawOff, ...defaults } = stored;
 
   const { tasks: taskStore } = require('../db');
   const { forTask } = require('../agent');
@@ -564,6 +566,63 @@ async function main() {
   await call('PUT', `/api/tasks/${pinned.id}`, { title: 'Pinned again' });
   assert.equal(taskStore.get(pinned.id).harness, null, 'an unrelated edit leaves the choice alone');
   ok('a task can be handed back to the default');
+
+  // --- a harness dealt out at random, so the grades can be compared ---
+  const draw = harnesses.randomChoice();
+  assert.ok(harnesses.byId(draw.harness), 'draws one of the harnesses the app can actually drive');
+  assert.equal(draw.provider, 'native', 'compares the harnesses, not somebody else\'s endpoint');
+  assert.equal(draw.model, harnesses.byId(draw.harness).providers[0].models[0].id,
+    'takes the top model of the harness it drew');
+  const drawn = new Set();
+  for (let i = 0; i < 200; i++) drawn.add(harnesses.randomChoice().harness);
+  assert.deepEqual([...drawn].sort(), ['claude', 'codex', 'grok'], 'every harness comes up');
+  ok('the draw covers all three harnesses, each on its own top model');
+
+  assert.equal((await call('PUT', '/api/settings',
+    { harness: 'codex', model: 'gpt-5.6-terra', random: true })).body.random, true);
+  assert.equal((await call('GET', '/api/settings')).body.random, true, 'the choice outlives the request');
+
+  const dealt = [];
+  for (let i = 0; i < 12; i++) {
+    dealt.push((await call('POST', `/api/projects/${proj.id}/tasks`, { title: `Dealt ${i}` })).body);
+  }
+  for (const t of dealt) {
+    assert.ok(t.harness, 'a task made under the draw is pinned rather than left following the default');
+    assert.equal(t.provider, 'native');
+    assert.equal(t.model, harnesses.byId(t.harness).providers[0].models[0].id);
+    assert.deepEqual(resolved(t.id), { harness: t.harness, provider: t.provider, model: t.model });
+  }
+  // Twelve draws over three harnesses landing on one is a 1-in-280,000 fluke, or a broken draw.
+  assert.ok(new Set(dealt.map((t) => t.harness)).size > 1, 'the tasks are spread across harnesses');
+  ok('each new task is dealt its own harness and keeps it');
+
+  // The point of pinning is that the choice survives — a default moved later must not move it.
+  const before = dealt[0].harness;
+  await call('PUT', '/api/settings', { harness: 'grok', model: 'grok-4.5', random: true });
+  assert.equal(taskStore.get(dealt[0].id).harness, before, 'a task already dealt keeps what it drew');
+  ok('moving the default does not re-roll a task that has already been dealt');
+
+  // Picking for yourself has to beat the dice, at any of the three levels.
+  const mine = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'My pick', harness: 'claude', model: 'claude-haiku-4-5-20251001',
+  })).body;
+  assert.deepEqual(resolved(mine.id),
+    { harness: 'claude', provider: 'native', model: 'claude-haiku-4-5-20251001' });
+  const myModel = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'My model', model: 'grok-4.6',
+  })).body;
+  assert.equal(myModel.harness, null, 'a model pinned alone still follows the default harness');
+  assert.deepEqual(resolved(myModel.id), { harness: 'grok', provider: 'native', model: 'grok-4.6' });
+  ok('a harness or model you chose yourself is not overruled by the draw');
+
+  assert.equal((await call('PUT', '/api/settings', { harness: 'grok' })).body.random, true,
+    'saving the default alone leaves the draw as it was');
+  const off = (await call('PUT', '/api/settings',
+    { harness: 'claude', model: 'claude-opus-5', random: false })).body;
+  assert.equal(off.random, false);
+  const plain = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Plain' })).body;
+  assert.equal(plain.harness, null, 'with the draw off, a task follows the default again');
+  ok('the draw can be turned off, and tasks go back to following the default');
 
   await call('PUT', '/api/settings', { harness: 'claude', model: 'claude-opus-5' });
 

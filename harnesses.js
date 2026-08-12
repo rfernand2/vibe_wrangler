@@ -313,6 +313,18 @@ function resolve(harnessId, providerId, modelId) {
   return { harness, provider, model };
 }
 
+/**
+ * A harness drawn by lot, so a run of tasks spreads itself across all of them and their grades can
+ * be compared. Always on `native` and always its first model: the question being asked is which
+ * harness does better, and routing one of them through somebody else's endpoint would be asking
+ * about the endpoint instead. Ids rather than objects — this is what gets stored on the task.
+ */
+function randomChoice() {
+  const harness = HARNESSES[Math.floor(Math.random() * HARNESSES.length)];
+  const provider = harness.providers.find((p) => p.id === 'native') || harness.providers[0];
+  return { harness: harness.id, provider: provider.id, model: provider.models[0].id };
+}
+
 /** The shape the browser needs to build its three dependent dropdowns. */
 async function catalogue() {
   for (const harness of HARNESSES) {
@@ -334,5 +346,6 @@ const snapshot = () => HARNESSES.map((h) => ({
 }));
 
 module.exports = {
-  HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, DIRECTIVE_BOUNDARY, byId, resolve, catalogue, snapshot,
+  HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, DIRECTIVE_BOUNDARY, byId, resolve, randomChoice,
+  catalogue, snapshot,
 };
