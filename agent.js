@@ -512,6 +512,7 @@ function runTask(taskId) {
 
   const history = comments.listForTask(taskId);
   const { harness, provider, model } = forTask(task);
+  tasks.recordAgent(taskId, { harness: harness.id, provider: provider.id, model: model.id });
 
   const logFile = path.join(LOG_DIR, `task-${taskId}-${Date.now()}.log`);
   const log = fs.createWriteStream(logFile, { flags: 'a' });

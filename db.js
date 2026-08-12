@@ -113,6 +113,14 @@ addColumn('agent_runs', 'kind', `TEXT NOT NULL DEFAULT 'task'`);
 addColumn('tasks', 'harness', 'TEXT');
 addColumn('tasks', 'provider', 'TEXT');
 addColumn('tasks', 'model', 'TEXT');
+addColumn('tasks', 'grade', 'TEXT');
+addColumn('tasks', 'graded_at', 'TEXT');
+addColumn('tasks', 'last_harness', 'TEXT');
+addColumn('tasks', 'last_provider', 'TEXT');
+addColumn('tasks', 'last_model', 'TEXT');
+addColumn('tasks', 'graded_harness', 'TEXT');
+addColumn('tasks', 'graded_provider', 'TEXT');
+addColumn('tasks', 'graded_model', 'TEXT');
 
 /** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
 db.exec(`
@@ -330,6 +338,25 @@ const tasks = {
     if (tags !== undefined) tasks.setTags(id, tags);
     return tasks.get(id);
   },
+  /** Preserve the resolved agent used by a run, even when the task follows mutable defaults. */
+  recordAgent(id, { harness, provider, model }) {
+    q(`UPDATE tasks SET last_harness = ?, last_provider = ?, last_model = ? WHERE id = ?`)
+      .run(harness, provider, model, id);
+    return tasks.get(id);
+  },
+  /** A grade snapshots the run identity so a later retry cannot rewrite the chart's history. */
+  setGrade(id, grade, { harness, provider, model } = {}) {
+    if (grade === null) {
+      q(`UPDATE tasks SET grade = NULL, graded_at = NULL, graded_harness = NULL,
+         graded_provider = NULL, graded_model = NULL, updated_at = datetime('now') WHERE id = ?`)
+        .run(id);
+    } else {
+      q(`UPDATE tasks SET grade = ?, graded_at = datetime('now'), graded_harness = ?,
+         graded_provider = ?, graded_model = ?, updated_at = datetime('now') WHERE id = ?`)
+        .run(grade, harness, provider, model, id);
+    }
+    return tasks.get(id);
+  },
   /** Entering and leaving 'active' are what bracket a run, so the clock lives here. */
   setStatus(id, status) {
     const cur = q('SELECT status FROM tasks WHERE id = ?').get(id);
@@ -345,6 +372,23 @@ const tasks = {
   },
   remove(id) {
     return q('DELETE FROM tasks WHERE id = ?').run(id).changes > 0;
+  },
+};
+
+const GRADES = ['F', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+'];
+
+const performance = {
+  list() {
+    return q(`
+      SELECT t.id AS task_id, t.number AS task_number, t.title AS task_title,
+             p.id AS project_id, p.name AS project_name, t.grade, t.graded_at,
+             t.graded_harness AS harness, t.graded_provider AS provider,
+             t.graded_model AS model
+      FROM tasks t
+      JOIN projects p ON p.id = t.project_id
+      WHERE t.grade IS NOT NULL
+      ORDER BY t.graded_at, t.id
+    `).all();
   },
 };
 
@@ -450,6 +494,7 @@ function allStatuses() {
 }
 
 module.exports = {
-  db, projects, tasks, comments, checklist, runs, quickTags, settings,
+  db, projects, tasks, comments, checklist, runs, quickTags, settings, performance,
   allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, BUILTIN_QUICK_TAGS, DB_PATH,
+  GRADES,
 };

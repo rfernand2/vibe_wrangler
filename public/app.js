@@ -1,6 +1,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+const GRADES = ['F', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+'];
 
 const state = {
   view: 'project', // 'project' | 'all'
@@ -419,6 +420,11 @@ function renderTasks() {
     pill.className = `pill ${statusClass(t.status)}`;
     pill.textContent = t.status;
 
+    const grade = document.createElement('span');
+    grade.className = 'pill grade-pill';
+    grade.textContent = t.grade || '—';
+    grade.title = t.grade ? `Your grade: ${t.grade}` : 'Not graded';
+
     const main = document.createElement('div');
     main.className = 'task-main';
     const title = document.createElement('div');
@@ -459,7 +465,7 @@ function renderTasks() {
 
     li.oncontextmenu = (e) => { e.preventDefault(); openTaskMenu(e, t); };
 
-    li.append(gizmo, pill, main);
+    li.append(gizmo, pill, grade, main);
     list.append(li);
   }
 }
@@ -716,6 +722,12 @@ function renderTask() {
   }
   renderBody($('detailDesc'), t.description);
 
+  $('detailGrade').value = t.grade || '';
+  $('detailGrade').disabled = !t.started_at;
+  $('gradeHint').textContent = t.started_at
+    ? (t.grade ? `Graded ${when(t.graded_at)}` : 'Rate the agent on this task')
+    : 'Available after the task has run';
+
   $('detailChecklistBlock').hidden = !t.checklist.length;
   if (t.checklist.length) {
     $('detailChecklistCount').textContent = checklistProgress(t.checklist);
@@ -967,6 +979,17 @@ $('detailLogBtn').onclick = run(async () => {
   openDialog('logDialog');
 });
 
+$('detailGrade').replaceChildren(
+  option('', 'Not graded'),
+  ...[...GRADES].reverse().map((grade) => option(grade, grade)),
+);
+$('detailGrade').onchange = run(async (e) => {
+  state.task = await api('PUT', `/api/tasks/${state.task.id}`, { grade: e.target.value || null });
+  renderTask();
+  await loadTasks();
+  toast(e.target.value ? `Grade ${e.target.value} saved` : 'Grade removed');
+});
+
 $('runReadyBtn').onclick = run(async () => {
   const { started } = await api('POST', `/api/projects/${state.projectId}/run-ready`);
   toast(started.length ? `Started ${started.length} task(s)` : 'No ready tasks');
@@ -1026,6 +1049,109 @@ async function renderAgents() {
 $('agentsBtn').onclick = run(async () => {
   openDialog('agentsDialog');
   await renderAgents();
+});
+
+/* ---------- Agent performance ---------- */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const CHART_COLORS = ['#6ea8fe', '#4ade80', '#f0b429', '#c084fc', '#f87171', '#4cc9f0', '#fb923c'];
+
+function svgEl(name, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+function performanceAgent(row) {
+  const provider = providerById(row.harness, row.provider);
+  const via = provider && provider.id !== 'native' ? ` via ${provider.name}` : '';
+  return `${harnessName(row.harness)} · ${modelName(row.harness, row.provider, row.model)}${via}`;
+}
+
+function renderPerformance(rows) {
+  $('performanceEmpty').hidden = rows.length !== 0;
+  $('performanceChart').hidden = rows.length === 0;
+  $('performanceLegend').hidden = rows.length === 0;
+  if (!rows.length) return;
+
+  const width = Math.max(700, rows.length * 72 + 120);
+  const height = 390;
+  const margin = { top: 22, right: 24, bottom: 72, left: 48 };
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+  const times = rows.map((r) => parseTs(r.graded_at)?.getTime() || 0);
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const x = (time, index) => maxTime === minTime
+    ? margin.left + (rows.length === 1 ? plotW / 2 : index * plotW / (rows.length - 1))
+    : margin.left + ((time - minTime) / (maxTime - minTime)) * plotW;
+  const y = (grade) => margin.top + plotH - (GRADES.indexOf(grade) / (GRADES.length - 1)) * plotH;
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img',
+    'aria-label': 'Agent grades over time, from F at the bottom to A plus at the top' });
+
+  for (const grade of GRADES) {
+    const yy = y(grade);
+    svg.append(svgEl('line', { x1: margin.left, y1: yy, x2: width - margin.right, y2: yy,
+      class: 'chart-grid' }));
+    const label = svgEl('text', { x: margin.left - 9, y: yy + 4, 'text-anchor': 'end',
+      class: 'chart-axis-label' });
+    label.textContent = grade;
+    svg.append(label);
+  }
+
+  const groups = new Map();
+  rows.forEach((row, index) => {
+    const label = performanceAgent(row);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push({ row, index, time: times[index] });
+  });
+
+  [...groups.entries()].forEach(([label, points], groupIndex) => {
+    const color = CHART_COLORS[groupIndex % CHART_COLORS.length];
+    if (points.length > 1) {
+      svg.append(svgEl('polyline', {
+        points: points.map((p) => `${x(p.time, p.index)},${y(p.row.grade)}`).join(' '),
+        fill: 'none', stroke: color, 'stroke-width': 2,
+      }));
+    }
+    for (const p of points) {
+      const dot = svgEl('circle', { cx: x(p.time, p.index), cy: y(p.row.grade), r: 5,
+        fill: color, class: 'chart-point', tabindex: 0 });
+      const title = svgEl('title');
+      title.textContent = `${label}: ${p.row.grade} — ${p.row.project_name} #${p.row.task_number} ${p.row.task_title} — ${when(p.row.graded_at)}`;
+      dot.append(title);
+      svg.append(dot);
+    }
+  });
+
+  const dateIndexes = rows.length <= 7
+    ? rows.map((_, i) => i)
+    : [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
+  for (const index of [...new Set(dateIndexes)]) {
+    const label = svgEl('text', { x: x(times[index], index), y: height - 42, 'text-anchor': 'end',
+      transform: `rotate(-35 ${x(times[index], index)} ${height - 42})`, class: 'chart-axis-label' });
+    label.textContent = parseTs(rows[index].graded_at)?.toLocaleDateString() || '';
+    svg.append(label);
+  }
+  $('performanceChart').replaceChildren(svg);
+
+  const legend = $('performanceLegend');
+  legend.replaceChildren();
+  [...groups.keys()].forEach((label, index) => {
+    const item = document.createElement('span');
+    item.className = 'legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = 'legend-swatch';
+    swatch.style.background = CHART_COLORS[index % CHART_COLORS.length];
+    item.append(swatch, document.createTextNode(label));
+    legend.append(item);
+  });
+}
+
+$('performanceBtn').onclick = run(async () => {
+  const rows = await api('GET', '/api/performance');
+  renderPerformance(rows);
+  openDialog('performanceDialog');
 });
 
 function openSettings() {

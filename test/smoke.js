@@ -261,6 +261,29 @@ async function main() {
     /Reporting protocol/, 'the prompt is written beside the log');
   ok('a file-prompt harness is prepared, given its prompt, and fails cleanly');
 
+  // --- user grades and agent performance history ---
+  assert.equal((await call('PUT', `/api/tasks/${t2.id}`, { grade: 'A' })).status, 409,
+    'an agent cannot be rated before it has run');
+  assert.equal((await call('PUT', `/api/tasks/${t1.id}`, { grade: 'excellent' })).status, 400);
+  const gradedClaude = (await call('PUT', `/api/tasks/${t1.id}`, { grade: 'b+' })).body;
+  assert.equal(gradedClaude.grade, 'B+');
+  assert.equal(gradedClaude.graded_model, 'claude-opus-5');
+  assert.ok(gradedClaude.graded_at);
+  const gradedGrok = (await call('PUT', `/api/tasks/${viaFile.id}`, { grade: 'A+' })).body;
+  assert.equal(gradedGrok.grade, 'A+');
+
+  const performance = (await call('GET', '/api/performance')).body;
+  assert.deepEqual(performance.map((point) => point.grade), ['B+', 'A+']);
+  assert.deepEqual(performance.map((point) => point.model), ['claude-opus-5', 'grok-4.5']);
+  assert.ok(performance.every((point) => point.graded_at && point.task_title && point.project_name));
+  ok('stores validated task grades with the actual model and publishes chart history');
+
+  const ungraded = (await call('PUT', `/api/tasks/${t1.id}`, { grade: null })).body;
+  assert.equal(ungraded.grade, null);
+  assert.deepEqual((await call('GET', '/api/performance')).body.map((point) => point.task_id), [viaFile.id]);
+  await call('PUT', `/api/tasks/${t1.id}`, { grade: 'B+' });
+  ok('removes and replaces a task grade');
+
   // --- run-ready only picks up ready tasks ---
   await call('PUT', `/api/tasks/${t1.id}`, { status: 'ready' });
   const startedResp = (await call('POST', `/api/projects/${proj.id}/run-ready`)).body;

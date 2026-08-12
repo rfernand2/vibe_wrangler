@@ -3,7 +3,9 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { projects, tasks, comments, allStatuses, allTags, quickTags, settings } = require('./db');
+const {
+  projects, tasks, comments, allStatuses, allTags, quickTags, settings, performance, GRADES,
+} = require('./db');
 const agent = require('./agent');
 const events = require('./events');
 const attachments = require('./attachments');
@@ -133,6 +135,9 @@ async function api(req, res, url) {
   // /api/tags
   if (a === 'tags' && method === 'GET') return json(res, 200, allTags());
 
+  // /api/performance — graded tasks in chronological order for the agent history chart
+  if (a === 'performance' && method === 'GET') return json(res, 200, performance.list());
+
   // /api/quick-tags — the set offered on a task's right-click menu
   if (a === 'quick-tags') {
     if (method === 'GET') return json(res, 200, quickTags.list());
@@ -260,6 +265,27 @@ async function api(req, res, url) {
           const pick = pickHarness(body);
           if (pick.error) return json(res, 400, { error: pick.error });
           Object.assign(body, pick);
+        }
+        if (body.grade !== undefined) {
+          const grade = body.grade === null || body.grade === '' ? null : String(body.grade).toUpperCase();
+          if (grade !== null && !GRADES.includes(grade)) {
+            return json(res, 400, { error: `Grade must be one of: ${GRADES.join(', ')}` });
+          }
+          const current = tasks.get(id);
+          if (!current) return json(res, 404, { error: 'Task not found' });
+          if (grade !== null && !current.started_at) {
+            return json(res, 409, { error: 'Run the task before grading its agent' });
+          }
+          if (grade === null) tasks.setGrade(id, null);
+          else {
+            const resolved = agent.forTask(current);
+            tasks.setGrade(id, grade, {
+              harness: current.last_harness || resolved.harness.id,
+              provider: current.last_provider || resolved.provider.id,
+              model: current.last_model || resolved.model.id,
+            });
+          }
+          delete body.grade;
         }
         const t = tasks.update(id, body);
         return t ? json(res, 200, withComments(t)) : json(res, 404, { error: 'Task not found' });

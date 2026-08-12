@@ -14,6 +14,7 @@
   <h1>Vibe Wrangler</h1>
   <span class="appbar-sub" id="agentInfo"></span>
   <span class="spacer"></span>
+  <button class="btn btn-ghost" id="performanceBtn" title="Agent performance">Performance</button>
   <button class="btn btn-ghost" id="agentsBtn" title="Running agents">Agents</button>
 </header>
 
@@ -214,6 +215,12 @@
     <div class="tag-row" id="detailTags"></div>
     <pre class="task-desc" id="detailDesc"></pre>
 
+    <div class="grade-control">
+      <label for="detailGrade">Your grade</label>
+      <select id="detailGrade" aria-describedby="gradeHint"></select>
+      <span class="muted" id="gradeHint"></span>
+    </div>
+
     <div class="row-actions drawer-actions">
       <button class="btn btn-primary" id="detailRunBtn">Run agent</button>
       <button class="btn btn-danger" id="detailStopBtn" hidden>Stop</button>
@@ -242,6 +249,25 @@
     </form>
   </div>
 </aside>
+
+<!-- Agent performance dialog -->
+<dialog id="performanceDialog" class="performance-dialog">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <div>
+        <h3>Agent performance</h3>
+        <p class="muted performance-subtitle">Your task grades over time</p>
+      </div>
+      <button type="button" class="icon-btn" data-close="performanceDialog" aria-label="Close">&times;</button>
+    </div>
+    <div id="performanceEmpty" class="empty chart-empty" hidden>Grade a completed run to start the chart.</div>
+    <div id="performanceChart" class="performance-chart"></div>
+    <div id="performanceLegend" class="performance-legend"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="performanceDialog">Close</button>
+    </div>
+  </div>
+</dialog>
 
 <!-- Raw log dialog -->
 <dialog id="logDialog">
