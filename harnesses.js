@@ -190,7 +190,14 @@ const HARNESSES = [
     // overflow on Windows. A file sidesteps both problems.
     input: 'file',
     providers: [
-      { id: 'native', name: 'Native', models: [{ id: 'grok-4.5', name: 'Grok 4.5' }] },
+      {
+        id: 'native',
+        name: 'Native',
+        models: [
+          { id: 'grok-4.6', name: 'Grok 4.6' },
+          { id: 'grok-4.5', name: 'Grok 4.5' },
+        ],
+      },
       {
         id: 'openrouter',
         name: 'OpenRouter',

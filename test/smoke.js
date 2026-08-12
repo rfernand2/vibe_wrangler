@@ -353,6 +353,12 @@ async function main() {
   assert.deepEqual(grokCat.providers.map((p) => p.id), ['native', 'openrouter', 'ollama']);
   ok('publishes the harness catalogue, models grouped under their provider');
 
+  // Newest first, because the head of the list is what a task with no model of its own falls back to.
+  const grokNative = grokCat.providers.find((p) => p.id === 'native');
+  assert.deepEqual(grokNative.models.map((m) => m.id), ['grok-4.6', 'grok-4.5']);
+  assert.equal(harnesses.resolve('grok', 'native', null).model.id, 'grok-4.6');
+  ok('offers the current xAI models, the newest one as the default');
+
   // A local model exists only while it is pulled, so the list is what Ollama says it has, not a guess.
   const ollamaCat = grokCat.providers.find((p) => p.id === 'ollama');
   assert.deepEqual(ollamaCat.models.map((m) => m.name), INSTALLED);
