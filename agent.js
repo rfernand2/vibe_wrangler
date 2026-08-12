@@ -173,6 +173,19 @@ function stripDirectives(text) {
     .trim();
 }
 
+/**
+ * A harness that hands back the whole transcript rather than the closing message buries the summary
+ * under everything the agent narrated on the way — prose the reporting protocol promises is discarded
+ * unread. The summary is what comes after the last directive. If nothing does, the agent signed off
+ * with a `DONE:` and the best that is left is the prose from the whole run.
+ */
+function finalSummary(text) {
+  const lines = directiveLines(text);
+  let last = -1;
+  lines.forEach((line, i) => { if (DIRECTIVE.test(line)) last = i; });
+  return lines.slice(last + 1).join('\n').trim() || stripDirectives(text);
+}
+
 function childEnv(harness) {
   const env = { ...process.env };
   harness.env(env);
@@ -265,7 +278,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       if (entry.stopping) return settle({ status: 'stopped' });
       settle(failed
         ? { status: 'error', message: 'The agent reported a failed run.' }
-        : { status: 'ok', summary: stripDirectives(finalText), sawNote: Boolean(lastNote) });
+        : { status: 'ok', summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
     }, LINGER_GRACE_MS);
   };
 
@@ -331,7 +344,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
       const detail = stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 500);
       return settle({ status: 'error', message: `Agent exited with an error${detail ? `: ${detail}` : ` (exit code ${code})`}.` });
     }
-    settle({ status: 'ok', summary: stripDirectives(finalText), sawNote: Boolean(lastNote) });
+    settle({ status: 'ok', summary: finalSummary(finalText), sawNote: Boolean(lastNote) });
   });
 }
 

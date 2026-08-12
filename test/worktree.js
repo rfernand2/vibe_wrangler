@@ -209,6 +209,15 @@ async function main() {
   assert.ok(tasks.get(t7c.id).checklist.length, 'the plan it did emit is kept');
   ok('an agent that plans twice and works neither time fails');
 
+  // --- a whole transcript handed back should not bury the summary under narration ---
+  const t7d = tasks.create({ project_id: p1.id, title: 'Task G4', description: 'FAKE_TRANSCRIPT' });
+  agent.runTask(t7d.id);
+  await settle([t7d.id]);
+  assert.equal(tasks.get(t7d.id).status, 'completed');
+  const summary = comments.listForTask(t7d.id).filter((c) => c.author === 'agent').pop().body;
+  assert.equal(summary, '### Summary\nAll good.');
+  ok('the summary is what follows the last directive, not the whole run');
+
   // --- retrying a failed task must not destroy work its branch is still holding ---
   const t8 = tasks.create({ project_id: p1.id, title: 'Task H', description: 'FAKE_APPEND a.txt|from H' });
   const held = `llm-task/${t8.id}`;

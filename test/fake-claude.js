@@ -73,6 +73,20 @@ function run() {
     return;
   }
 
+  // A harness whose terminal event carries the whole run back, not just the closing message.
+  if (prompt.includes('FAKE_TRANSCRIPT')) {
+    fs.writeFileSync(path.join(process.cwd(), 'transcript.txt'), 'done\n');
+    say('PLAN: Only step');
+    note('Did the thing.');
+    say('DONE: Only step');
+    emit({
+      type: 'result',
+      result: 'I will start by reading things.\nNOTE: Did the thing.\nDONE: Only step\n\n'
+        + '### Summary\nAll good.',
+    });
+    return;
+  }
+
   say('PLAN: Read the code\nPLAN: Make the change\nPLAN: Check it works');
   say('DONE: read the CODE');
   // Real agents run one directive onto the end of another often enough to matter.
