@@ -1,7 +1,7 @@
 {
   "name": "vibe_wrangler",
   "version": "1.0.0",
-  "description": "Project + task board for work carried out by a Claude Code agent",
+  "description": "Project + task board that hands work to a coding-agent CLI — Claude Code, OpenAI Codex or Grok Build — each with its own providers and models",
   "main": "server.js",
   "repository": {
     "type": "git",

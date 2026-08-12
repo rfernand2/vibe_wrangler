@@ -4,10 +4,10 @@ A lightweight web app for managing **projects** and **tasks** that a **coding-ag
 
 It is built as a general harness for driving agent CLIs — the app owns the board, the git isolation, the
 process supervision and the progress reporting, and treats the agent itself as a swappable command it
-shells out to. **Claude Code**, **OpenAI Codex** and **Grok Build** are all supported, and each task can name
-the one it wants. Everything that differs between them — the flags, how the prompt is handed over, and how
-to read their JSON event streams — lives in `harnesses.js`; adding a fourth is an entry in that list and
-nothing else.
+shells out to. Three are supported — **Claude Code**, **OpenAI Codex** and **Grok Build**, each with its own
+[providers and models](#harnesses-providers--models) — and every task can name the one it wants. Everything
+that differs between them — the flags, how the prompt is handed over, and how to read their JSON event
+streams — lives in `harnesses.js`; adding a fourth is an entry in that list and nothing else.
 
 The point: you keep a clean, human-readable board of work. The agent picks up tasks, does the work, and
 reports back in short, user-level comments — you never have to wade through tool calls, diffs, or token noise
@@ -66,11 +66,51 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Model providers** — a harness's models are grouped by where they come from. Every harness offers
   **Native** (its own vendor's models); Grok Build also offers **OpenRouter** and **Ollama**, so you can
   run a task on a hosted third-party model or on one running locally. Picking one is all you do — the app
-  writes the model alias Grok needs into its config file before the run starts.
+  writes the model alias Grok needs into its config file before the run starts. See
+  [harnesses, providers & models](#harnesses-providers--models) for the full list.
 - **Live** — the board updates itself. There is no Refresh button because there is nothing to refresh:
   the server pushes a notification whenever anything changes and every open tab refetches.
 - **Local & private** — everything lives in a single SQLite file. No cloud, and no API keys unless you
   choose a provider that needs one.
+
+## Harnesses, providers & models
+
+Three choices, each narrowing the last: a **harness** is the CLI that gets shelled out to, a **provider** is
+whose endpoint that CLI is pointed at, and a **model** is what answers. Settings picks the trio every task
+runs with by default; a task can name its own.
+
+| Harness | CLI | Provider | Models |
+| --- | --- | --- | --- |
+| **Claude Code** | `claude` | **Native** — Anthropic | Opus 5, Fable 5, Sonnet 5, Haiku 4.5 |
+| **OpenAI Codex** | `codex` | **Native** — OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.3 Codex Spark |
+| **Grok Build** | `grok` | **Native** — xAI | Grok 4.6, Grok 4.5 |
+| | | **OpenRouter** | DeepSeek V4 Flash 0731, MiMo-V2.5, GLM 5.2, GPT-5.6 Luna, Hy3 |
+| | | **Ollama** | whatever you have pulled — read from Ollama itself, not a list kept here |
+
+Claude Code and Codex offer only their own vendor's models: neither CLI has a supported way to reach a
+third-party endpoint, so there is nothing to expose. Grok Build does, through an alias in its own config
+file, which is why the other two providers hang off it.
+
+The head of each list is the fallback — the model a task gets when it has named a harness and a provider but
+not a model, which is also why a newly released model goes to the top rather than the bottom.
+
+**Ollama's models are not listed in the source.** Which ones exist depends entirely on what you have pulled,
+so any list written here would be wrong on every machine that made different choices. The app asks Ollama
+each time the catalogue is fetched and shows what it answers. If Ollama isn't running, the last known list
+stays put — a stopped server is not the same as nothing installed, and emptying the dropdown would be its
+own kind of lie.
+
+Two things are checked *before* a worktree and a branch are made for the run, because both otherwise reach
+you as a bare status code from somebody else's server, minutes in:
+
+- **A missing key** — choosing an OpenRouter model with no key in the environment stops the run with the
+  variable name to set, rather than a `401` from the far end.
+- **A model Ollama doesn't have** — Ollama will not fetch a model on demand, so picking one that isn't
+  pulled stops the run with the `ollama pull` command to run and a list of what *is* installed.
+
+Adding a model is one line in `harnesses.js`. The catalogue is read into memory at startup, so a model added
+to the source shows up in the dropdowns only after a restart — Ollama's list is the one part rebuilt on
+every request.
 
 ## Why a CLI (not the API)
 
@@ -94,8 +134,9 @@ command, a working directory and a stream of output, which is why supporting a s
   - **OpenRouter** — an `OPENROUTER_API_KEY` in your environment (`OPEN_ROUTER_KEY`,
     `OPENROUTER_KEY` and `OPENROUTER_API_TOKEN` are accepted too). Set it *before* starting the app:
     a variable added afterwards is invisible to a process that is already running.
-  - **Ollama** — [Ollama](https://ollama.com) running locally, with the model you pick already pulled
-    (`ollama pull qwen3-coder`)
+  - **Ollama** — [Ollama](https://ollama.com) running locally. The dropdown lists what you have pulled, so
+    pull first (`ollama pull qwen3-coder`) and it appears; Ollama does not download a model on demand, and
+    picking one it doesn't have stops the run before it starts rather than failing partway.
 
 ## Quick start
 
