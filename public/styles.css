@@ -224,6 +224,22 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   color: var(--muted);
   white-space: nowrap;
 }
+/* Reads like the status pill beside it, but it is a control: solid at rest, editable in place. */
+.grade-select {
+  flex: 0 0 auto;
+  width: 64px;
+  padding: 1px 2px 1px 6px;
+  font-size: 11px;
+  letter-spacing: .06em;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.grade-select.graded { color: var(--text); font-weight: 600; }
+.grade-select:hover:not(:disabled) { border-color: #3a4150; color: var(--text); }
+.grade-select:disabled { opacity: .5; cursor: default; }
+
 .pill.ready { color: var(--ready); border-color: #6b5312; background: #2e2510; }
 .pill.active { color: var(--active); border-color: #1d5c72; background: #10262e; }
 .pill.completed { color: var(--completed); border-color: #1f6b3f; background: #0f2a1c; }

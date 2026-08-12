@@ -380,7 +380,34 @@ async function loadTasks() {
   renderTasks();
 }
 
+/** Best first, so the grade a run deserves is usually a short reach from the top of the list. */
+function gradeOptions(placeholder) {
+  return [option('', placeholder), ...[...GRADES].reverse().map((g) => option(g, g))];
+}
+
+/** The drawer and the task rows grade the same way, so one save serves both. */
+async function saveGrade(taskId, value) {
+  const grade = value || null;
+  const saved = await api('PUT', `/api/tasks/${taskId}`, { grade });
+  if (state.task?.id === taskId) {
+    state.task = saved;
+    renderTask();
+  }
+  await loadTasks();
+  toast(grade ? `Grade ${grade} saved` : 'Grade removed');
+}
+
+/**
+ * The rows carry live dropdowns now, and a background refresh rebuilds the whole list. Redrawing
+ * under the user's hand would shut a grade dropdown mid-choice, so the redraw waits for the
+ * dropdown to be given up instead.
+ */
+let taskRenderDeferred = false;
+const gradingInRow = () => document.activeElement?.classList.contains('grade-select');
+
 function renderTasks() {
+  if (gradingInRow()) { taskRenderDeferred = true; return; }
+  taskRenderDeferred = false;
   const list = $('taskList');
   list.replaceChildren();
   const shown = visibleTasks();
@@ -420,10 +447,26 @@ function renderTasks() {
     pill.className = `pill ${statusClass(t.status)}`;
     pill.textContent = t.status;
 
-    const grade = document.createElement('span');
-    grade.className = 'pill grade-pill';
-    grade.textContent = t.grade || '—';
-    grade.title = t.grade ? `Your grade: ${t.grade}` : 'Not graded';
+    // Grading in the row means a finished run can be rated without opening the task first.
+    const grade = document.createElement('select');
+    grade.className = `grade-select${t.grade ? ' graded' : ''}`;
+    grade.replaceChildren(...gradeOptions('—'));
+    grade.value = t.grade || '';
+    grade.disabled = !t.started_at;
+    grade.title = t.started_at
+      ? (t.grade ? `Your grade: ${t.grade}` : 'Grade this agent run')
+      : 'Available after the task has run';
+    grade.setAttribute('aria-label', `Grade for task #${t.number}: ${t.title}`);
+    grade.onclick = (e) => e.stopPropagation(); // the row itself opens the task
+    grade.onchange = (e) => {
+      e.stopPropagation();
+      const chosen = e.target.value;
+      e.target.blur(); // the choice is made, so let any deferred refresh through
+      // A rejected grade leaves the dropdown showing a value the task never took, so redraw it.
+      saveGrade(t.id, chosen).catch((err) => { toast(err.message, true); renderTasks(); });
+    };
+    // Waits a tick so tabbing to the next row's dropdown is seen as still grading, not as done.
+    grade.onblur = () => { if (taskRenderDeferred) setTimeout(renderTasks, 0); };
 
     const main = document.createElement('div');
     main.className = 'task-main';
@@ -979,16 +1022,8 @@ $('detailLogBtn').onclick = run(async () => {
   openDialog('logDialog');
 });
 
-$('detailGrade').replaceChildren(
-  option('', 'Not graded'),
-  ...[...GRADES].reverse().map((grade) => option(grade, grade)),
-);
-$('detailGrade').onchange = run(async (e) => {
-  state.task = await api('PUT', `/api/tasks/${state.task.id}`, { grade: e.target.value || null });
-  renderTask();
-  await loadTasks();
-  toast(e.target.value ? `Grade ${e.target.value} saved` : 'Grade removed');
-});
+$('detailGrade').replaceChildren(...gradeOptions('Not graded'));
+$('detailGrade').onchange = run((e) => saveGrade(state.task.id, e.target.value));
 
 $('runReadyBtn').onclick = run(async () => {
   const { started } = await api('POST', `/api/projects/${state.projectId}/run-ready`);
