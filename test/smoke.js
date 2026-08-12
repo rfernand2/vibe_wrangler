@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
+const { taskAgentId } = require('../public/task-agent');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -51,6 +52,12 @@ async function main() {
   assert.equal(index.status, 200);
   assert.match(index.body, /Vibe Wrangler/);
   ok('serves the front end');
+
+  assert.equal(taskAgentId({ status: 'ready', harness: null, last_harness: 'claude' }, 'codex'), 'codex');
+  assert.equal(taskAgentId({ status: 'ready', harness: 'grok', last_harness: 'claude' }, 'codex'), 'grok');
+  assert.equal(taskAgentId({ status: 'active', harness: null, last_harness: 'claude' }, 'codex'), 'claude');
+  assert.equal(taskAgentId({ status: 'completed', harness: 'grok', last_harness: 'claude' }, 'codex'), 'claude');
+  ok('chooses the agent name shown beneath each task status');
 
   assert.equal((await call('GET', '/../db.js')).status, 404);
   ok('rejects path traversal on static files');

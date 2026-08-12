@@ -447,6 +447,13 @@ function renderTasks() {
     pill.className = `pill ${statusClass(t.status)}`;
     pill.textContent = t.status;
 
+    const taskState = document.createElement('div');
+    taskState.className = 'task-state';
+    const agentName = document.createElement('span');
+    agentName.className = 'task-agent';
+    agentName.textContent = harnessName(taskAgentId(t, state.settings.harness));
+    taskState.append(pill, agentName);
+
     // Grading in the row means a finished run can be rated without opening the task first.
     const grade = document.createElement('select');
     grade.className = `grade-select${t.grade ? ' graded' : ''}`;
@@ -508,7 +515,7 @@ function renderTasks() {
 
     li.oncontextmenu = (e) => { e.preventDefault(); openTaskMenu(e, t); };
 
-    li.append(gizmo, pill, grade, main);
+    li.append(gizmo, taskState, grade, main);
     list.append(li);
   }
 }
