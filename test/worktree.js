@@ -114,11 +114,12 @@ async function main() {
 
   const list1 = tasks.get(t1.id).checklist;
   assert.deepEqual(list1.map((i) => i.text), ['Read the code', 'Make the change', 'Check it works']);
-  assert.deepEqual(list1.map((i) => i.done), [true, false, false]);
+  assert.deepEqual(list1.map((i) => i.done), [true, true, false]);
   ok('PLAN lines build a checklist and DONE ticks the matching item off');
 
-  assert.equal(bodies(t1.id).includes('PLAN:'), false);
-  ok('checklist directives do not leak into the comment thread');
+  assert.equal(/PLAN:|DONE:/.test(bodies(t1.id)), false);
+  assert.match(bodies(t1.id), /Read it top to bottom\./);
+  ok('a directive glued onto a sentence still counts, and leaves the sentence behind');
 
   const timed = tasks.get(t1.id);
   assert.ok(timed.started_at && timed.finished_at);

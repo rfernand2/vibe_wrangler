@@ -136,9 +136,17 @@ function buildConflictPrompt(task, iso, files) {
 
 const DIRECTIVE = /^\s*(?:[-*]\s*)?(NOTE|PLAN|DONE):\s*(.+)$/;
 
+/**
+ * Agents run one directive onto the end of another often enough to matter — `…plus signs.DONE: Find
+ * the greet function` cost a checklist tick. Only a prefix glued straight onto a non-space is broken
+ * out, so a directive merely named in a sentence stays part of that sentence.
+ */
+const directiveLines = (text) =>
+  String(text).replace(/(?<=\S)(?=(?:NOTE|PLAN|DONE):)/g, '\n').split(/\r?\n/);
+
 function extractDirectives(text) {
   const out = [];
-  for (const raw of String(text).split(/\r?\n/)) {
+  for (const raw of directiveLines(text)) {
     const m = DIRECTIVE.exec(raw);
     if (m && m[2].trim()) out.push({ kind: m[1], text: m[2].trim() });
   }
@@ -146,8 +154,7 @@ function extractDirectives(text) {
 }
 
 function stripDirectives(text) {
-  return String(text)
-    .split(/\r?\n/)
+  return directiveLines(text)
     .filter((l) => !DIRECTIVE.test(l))
     .join('\n')
     .trim();

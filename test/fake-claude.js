@@ -73,6 +73,8 @@ function run() {
 
   say('PLAN: Read the code\nPLAN: Make the change\nPLAN: Check it works');
   say('DONE: read the CODE');
+  // Real agents run one directive onto the end of another often enough to matter.
+  say('NOTE: Read it top to bottom.DONE: make the CHANGE');
 
   const slow = /^FAKE_SLEEP\s+(\d+)$/m.exec(prompt);
   if (slow) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(slow[1]));
