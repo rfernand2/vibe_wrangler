@@ -27,6 +27,32 @@ const GROK_CONFIG = process.env.GROK_CONFIG || path.join(os.homedir(), '.grok', 
  */
 const GROK_MAX_TURNS = process.env.GROK_MAX_TURNS || '200';
 
+/** Read per call, not once: a test points it at a stand-in server. */
+const ollamaUrl = () => process.env.OLLAMA_HOST || 'http://localhost:11434';
+
+/** How long Ollama has to answer before we take it as not running. */
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS) || 1500;
+
+/** Every model Ollama had pulled when the catalogue was last built. Empty until one has been. */
+let ollamaInstalled = [];
+
+/** A tag like `qwen3.6:latest` is not a TOML bare key, and the alias name has to be one. */
+const ollamaAlias = (tag) => `ollama-${tag.toLowerCase().replace(/[^a-z0-9_-]+/g, '-')}`;
+
+/**
+ * Ollama's models are whichever ones the human has pulled, so any list written here is a guess that
+ * is wrong on every machine that didn't make the same choices. Asking it is the only honest answer.
+ * A failure leaves the last known list alone: Ollama not running is not the same as nothing installed,
+ * and emptying the dropdown for a stopped server would be its own kind of lie.
+ */
+async function discoverOllama(provider) {
+  const res = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS) });
+  const tags = (await res.json()).models?.map((m) => m.name).filter(Boolean) || [];
+  if (!tags.length) return;
+  ollamaInstalled = tags;
+  provider.models = tags.map((tag) => ({ id: ollamaAlias(tag), name: tag, upstream: tag }));
+}
+
 /**
  * Grok only reaches a non-xAI endpoint through an alias in its own config file, so choosing an
  * OpenRouter or Ollama model in the app means that alias has to exist before the CLI starts.
@@ -164,7 +190,14 @@ const HARNESSES = [
     // overflow on Windows. A file sidesteps both problems.
     input: 'file',
     providers: [
-      { id: 'native', name: 'Native', models: [{ id: 'grok-4.5', name: 'Grok 4.5' }] },
+      {
+        id: 'native',
+        name: 'Native',
+        models: [
+          { id: 'grok-4.6', name: 'Grok 4.6' },
+          { id: 'grok-4.5', name: 'Grok 4.5' },
+        ],
+      },
       {
         id: 'openrouter',
         name: 'OpenRouter',
@@ -190,14 +223,14 @@ const HARNESSES = [
         name: 'Ollama',
         // A local server needs no credential, but the OpenAI-compatible route still wants a key
         // header, so Ollama accepts any non-empty string.
-        register: { base_url: 'http://localhost:11434/v1', api_key: 'ollama' },
+        register: { base_url: `${ollamaUrl()}/v1`, api_key: 'ollama' },
+        discover: discoverOllama,
+        // Replaced by whatever `discover` finds. These are only what the dropdown shows before it has
+        // managed to ask, and the common pulls are a better guess than an empty list.
         models: [
-          { id: 'ollama-qwen3-coder', name: 'Qwen3 Coder', upstream: 'qwen3-coder' },
-          { id: 'ollama-qwen2-5-coder', name: 'Qwen2.5 Coder', upstream: 'qwen2.5-coder' },
-          { id: 'ollama-devstral', name: 'Devstral', upstream: 'devstral' },
-          { id: 'ollama-gpt-oss', name: 'GPT-OSS', upstream: 'gpt-oss' },
-          { id: 'ollama-deepseek-coder-v2', name: 'DeepSeek Coder V2', upstream: 'deepseek-coder-v2' },
-          { id: 'ollama-muse-glimmer', name: 'Muse Glimmer', upstream: 'muse-glimmer' },
+          { id: 'ollama-qwen3-coder', name: 'qwen3-coder', upstream: 'qwen3-coder' },
+          { id: 'ollama-devstral', name: 'devstral', upstream: 'devstral' },
+          { id: 'ollama-gpt-oss', name: 'gpt-oss', upstream: 'gpt-oss' },
         ],
       },
     ],
@@ -216,6 +249,26 @@ const HARNESSES = [
       if (!key || env[key]) return;
       const alt = (provider.register.env_alts || []).find((name) => env[name]?.trim());
       if (alt) env[key] = env[alt].trim();
+    },
+    /**
+     * Why this run cannot work, before a worktree and a branch have been made for it. Both of these
+     * reach the human as a status code from somewhere else — a bare 401, or a 404 naming a model they
+     * just picked from a dropdown — with nothing said about what to do next.
+     */
+    preflight(provider, model, env) {
+      const key = provider.register?.env_key;
+      if (key && !env[key]) {
+        const names = [key, ...(provider.register.env_alts || [])].join(', ');
+        return `No ${provider.name} API key in the environment, so the request would be rejected as`
+          + ` unauthorized. Set one of ${names} and restart Vibe Wrangler.`;
+      }
+      if (provider.discover && ollamaInstalled.length && !ollamaInstalled.includes(model.upstream)) {
+        return `Ollama does not have \`${model.upstream}\` yet, and it has to be downloaded before`
+          + ` this task can run — Ollama will not fetch it on demand. Run \`ollama pull`
+          + ` ${model.upstream}\` and start the task again, or pick one that is already installed:`
+          + ` ${ollamaInstalled.join(', ')}.`;
+      }
+      return null;
     },
     /**
      * Grok streams a token at a time, so a directive arrives split across events. Holding them
@@ -261,7 +314,16 @@ function resolve(harnessId, providerId, modelId) {
 }
 
 /** The shape the browser needs to build its three dependent dropdowns. */
-const catalogue = () => HARNESSES.map((h) => ({
+async function catalogue() {
+  for (const harness of HARNESSES) {
+    for (const provider of harness.providers) {
+      if (provider.discover) await provider.discover(provider).catch(() => { /* not running */ });
+    }
+  }
+  return snapshot();
+}
+
+const snapshot = () => HARNESSES.map((h) => ({
   id: h.id,
   name: h.name,
   providers: h.providers.map((p) => ({
@@ -272,5 +334,5 @@ const catalogue = () => HARNESSES.map((h) => ({
 }));
 
 module.exports = {
-  HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, DIRECTIVE_BOUNDARY, byId, resolve, catalogue,
+  HARNESSES, DEFAULT_HARNESS, GROK_CONFIG, DIRECTIVE_BOUNDARY, byId, resolve, catalogue, snapshot,
 };

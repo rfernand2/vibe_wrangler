@@ -144,9 +144,10 @@ async function api(req, res, url) {
     }
   }
 
-  // /api/config — the facts that only change when the app itself does
+  // /api/config — what is on offer. Nearly all of it is fixed, but a locally served model is only
+  // on offer while it is pulled, so the list is rebuilt whenever anyone asks for it.
   if (a === 'config' && method === 'GET') {
-    return json(res, 200, { version, harnesses: harnesses.catalogue() });
+    return json(res, 200, { version, harnesses: await harnesses.catalogue() });
   }
 
   // /api/settings — what a task runs with unless it names its own

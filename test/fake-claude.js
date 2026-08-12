@@ -73,6 +73,15 @@ function run() {
     return;
   }
 
+  // A CLI that narrates its way to a crash and dies with nothing on stderr, as they do.
+  if (prompt.includes('FAKE_SILENT_DIE')) {
+    say('NOTE: Reading the parser.');
+    say('Let me check the CSS for the controls container.');
+    // Not process.exit: the pending stdout writes have to reach the runner first.
+    process.exitCode = 1;
+    return;
+  }
+
   // An agent that answers with its plan and ends the turn: nothing done, nothing said. Handing the
   // plan back is what gets FAKE_PLAN_ONLY moving; FAKE_PLAN_ALWAYS never starts however it is asked.
   const resumed = prompt.includes('You have already broken this task down');

@@ -151,9 +151,10 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .content { flex: 1; padding: 18px 22px; min-width: 0; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }
 
-.project-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.project-head { display: grid; gap: 4px; }
+.project-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .project-head h2 { font-size: 20px; }
-.project-head .muted { font-size: 12px; margin: 4px 0 0; }
+.project-head .muted { font-size: 12px; margin: 0; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .toolbar { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; flex-wrap: wrap; }

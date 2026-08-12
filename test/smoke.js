@@ -16,6 +16,14 @@ process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
 process.env.GROK_BIN = 'definitely-not-a-real-binary';
 // So writing a Grok model alias in a test never touches the real ~/.grok/config.toml.
 process.env.GROK_CONFIG = path.join(tmp, 'grok.toml');
+// Which models Ollama offers depends on what the machine has pulled, so it answers for itself here.
+process.env.OLLAMA_HOST = 'http://127.0.0.1:38112';
+
+const INSTALLED = ['devstral:latest', 'qwen3-coder:30b'];
+const ollama = require('node:http').createServer((req, res) => {
+  res.writeHead(req.url === '/api/tags' ? 200 : 404, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ models: INSTALLED.map((name) => ({ name })) }));
+}).listen(38112);
 
 const server = require('../server');
 const base = `http://localhost:${process.env.PORT}`;
@@ -365,6 +373,18 @@ async function main() {
   assert.deepEqual(grokCat.providers.map((p) => p.id), ['native', 'openrouter', 'ollama']);
   ok('publishes the harness catalogue, models grouped under their provider');
 
+  // Newest first, because the head of the list is what a task with no model of its own falls back to.
+  const grokNative = grokCat.providers.find((p) => p.id === 'native');
+  assert.deepEqual(grokNative.models.map((m) => m.id), ['grok-4.6', 'grok-4.5']);
+  assert.equal(harnesses.resolve('grok', 'native', null).model.id, 'grok-4.6');
+  ok('offers the current xAI models, the newest one as the default');
+
+  // A local model exists only while it is pulled, so the list is what Ollama says it has, not a guess.
+  const ollamaCat = grokCat.providers.find((p) => p.id === 'ollama');
+  assert.deepEqual(ollamaCat.models.map((m) => m.name), INSTALLED);
+  assert.deepEqual(ollamaCat.models.map((m) => m.id), ['ollama-devstral-latest', 'ollama-qwen3-coder-30b']);
+  ok('offers the Ollama models that are actually installed');
+
   // These are the event shapes each CLI actually emits; the directives are read out of them.
   const claude = harnesses.byId('claude').reader();
   assert.deepEqual(
@@ -410,12 +430,12 @@ async function main() {
   ok('a harness that defaults to one turn is told to keep going');
 
   // Reaching a non-xAI endpoint means an alias has to exist in Grok's own config before it starts.
-  const { harness: gh, provider: gp, model: gm } = harnesses.resolve('grok', 'ollama', 'ollama-devstral');
+  const { harness: gh, provider: gp, model: gm } = harnesses.resolve('grok', 'ollama', 'ollama-devstral-latest');
   gh.prepare(gp, gm);
   const toml = fs.readFileSync(process.env.GROK_CONFIG, 'utf8');
-  assert.match(toml, /\[model\.ollama-devstral\]/);
-  assert.match(toml, /model = "devstral"/);
-  assert.match(toml, /base_url = "http:\/\/localhost:11434\/v1"/);
+  assert.match(toml, /\[model\.ollama-devstral-latest\]/);
+  assert.match(toml, /model = "devstral:latest"/);
+  assert.match(toml, /base_url = "http:\/\/127\.0\.0\.1:38112\/v1"/);
   gh.prepare(gp, gm);
   assert.equal(toml, fs.readFileSync(process.env.GROK_CONFIG, 'utf8'), 'writes the alias only once');
   const xai = harnesses.resolve('grok', 'native', 'grok-4.5');
@@ -436,6 +456,14 @@ async function main() {
   or.harness.env(none, or.provider);
   assert.deepEqual(none, {}, 'invents nothing when no key is set anywhere');
   ok('an OpenRouter key set under any of its spellings reaches the name the alias asks for');
+
+  // Both of these otherwise reach the human as a status code from somewhere else, mid-run.
+  assert.match(gh.preflight(or.provider, or.model, {}), /Set one of OPENROUTER_API_KEY/);
+  assert.equal(gh.preflight(or.provider, or.model, { OPENROUTER_API_KEY: 'k' }), null);
+  assert.match(gh.preflight(gp, { upstream: 'never-pulled' }, {}),
+    /has to be downloaded[\s\S]*ollama pull never-pulled/);
+  assert.equal(gh.preflight(gp, gm, {}), null, 'an installed model is left to run');
+  ok('a run that cannot work is stopped before a worktree is made for it');
 
   assert.deepEqual((await call('GET', '/api/settings')).body,
     { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
@@ -477,10 +505,10 @@ async function main() {
   ok('a task can override the harness, the model, or both');
 
   const viaOllama = (await call('POST', `/api/projects/${proj.id}/tasks`, {
-    title: 'Local', harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder',
+    title: 'Local', harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder-30b',
   })).body;
   assert.deepEqual(resolved(viaOllama.id),
-    { harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder' });
+    { harness: 'grok', provider: 'ollama', model: 'ollama-qwen3-coder-30b' });
   ok('a task can name the provider its model comes from');
 
   // Pinning only the model is what the dialog sends when you change nothing but the model, so it has
