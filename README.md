@@ -67,8 +67,10 @@ Projects  ──▶  Tasks  ──▶  Comments
   create is dealt one of the harnesses by lot, on its own **Native** provider and top model, and keeps
   it: the draw is written onto the task, so a retry runs the same one and the grade it earns stays
   attached to it. Grade a batch of tasks this way and the **Agent performance** chart is a like-for-like
-  comparison of the harnesses instead of a record of whichever one happened to be the default. A task
-  where you picked the harness, provider or model yourself is left as you picked it.
+  comparison of the harnesses instead of a record of whichever one happened to be the default. The
+  draw happens as the **New task** dialog opens, so its three dropdowns show you the harness you were
+  dealt rather than the default — and changing any of them overrides the draw, so a task you want on a
+  particular harness is still one dropdown away.
 - **Model providers** — a harness's models are grouped by where they come from. Every harness offers
   **Native** (its own vendor's models); Grok Build also offers **OpenRouter** and **Ollama**, so you can
   run a task on a hosted third-party model or on one running locally. Picking one is all you do — the app

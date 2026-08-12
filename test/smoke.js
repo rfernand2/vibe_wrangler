@@ -645,6 +645,14 @@ async function main() {
   })).body;
   assert.equal(myModel.harness, null, 'a model pinned alone still follows the default harness');
   assert.deepEqual(resolved(myModel.id), { harness: 'grok', provider: 'native', model: 'grok-4.6' });
+  // The New task dialog draws in the browser and sends what it drew, so a draw that lands on the
+  // harness that happens to be the default arrives looking exactly like "the default". It still has
+  // to be stored: re-rolling it here would run the task on something other than what was shown.
+  const asShown = (await call('POST', `/api/projects/${proj.id}/tasks`, {
+    title: 'Drawn in the dialog', harness: 'grok', provider: 'native', model: 'grok-4.5',
+  })).body;
+  assert.equal(asShown.harness, 'grok', 'a pick matching the default is still a pick, not a re-roll');
+  assert.deepEqual(resolved(asShown.id), { harness: 'grok', provider: 'native', model: 'grok-4.5' });
   ok('a harness or model you chose yourself is not overruled by the draw');
 
   assert.equal((await call('PUT', '/api/settings', { harness: 'grok' })).body.random, true,
