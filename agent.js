@@ -192,20 +192,6 @@ function childEnv(harness, provider) {
   return env;
 }
 
-/**
- * A provider pointed at somebody else's endpoint is useless without its credential, and the CLI only
- * reports that as a 401 from the far end after the run has already been billed a task's setup. Note
- * the restart: the app reads the environment it was started with, so a variable set afterwards is
- * invisible to it however permanently it was set.
- */
-function missingKeyMessage(provider, env) {
-  const key = provider.register?.env_key;
-  if (!key || env[key]) return null;
-  const names = [key, ...(provider.register.env_alts || [])].join(', ');
-  return `No ${provider.name} API key in the environment, so the request would be rejected as`
-    + ` unauthorized. Set one of ${names} and restart Vibe Wrangler.`;
-}
-
 /** What the app will run with when neither the task nor anything else has an opinion. */
 function defaults() {
   return harnesses.resolve(
@@ -237,11 +223,12 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
   // A harness reaching somebody else's endpoint may need setting up before it can be started.
   harness.prepare?.(provider, model);
 
+  // Cheaper to hear now than as a status code from an endpoint once the branch has been made.
   const env = childEnv(harness, provider);
-  const missingKey = missingKeyMessage(provider, env);
-  if (missingKey) {
-    log.write(`\n[config] ${missingKey}\n`);
-    return onDone({ status: 'spawn-error', message: missingKey });
+  const problem = harness.preflight?.(provider, model, env);
+  if (problem) {
+    log.write(`\n[config] ${problem}\n`);
+    return onDone({ status: 'spawn-error', message: problem });
   }
 
   // Harnesses that cannot read stdin get the prompt as a file rather than an argument, which a
