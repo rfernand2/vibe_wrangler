@@ -50,11 +50,18 @@ function run() {
 
   emit({ type: 'system', subtype: 'init' });
 
-  // A follow-up on a finished task: plain prose back, no directives, and nothing written anywhere.
-  const asked = /## The message to answer\n([\s\S]*)$/.exec(prompt);
-  if (asked) {
-    const question = asked[1].trim();
-    say('Let me look at what the run left behind.');
+  // A comment that reopened a closed task: answer what was asked, and apply any follow-up edit.
+  if (/has been reopened because the human added a comment/.test(prompt)) {
+    const notes = [...prompt.matchAll(/- \[user\] (.+)/g)].map((m) => m[1].trim());
+    const question = notes.at(-1) || 'a follow-up';
+    const extra = /^FAKE_APPEND\s+([^|]+)\|(.*)$/.exec(question);
+    if (extra) {
+      const file = path.join(process.cwd(), extra[1].trim());
+      fs.appendFileSync(file, extra[2] + '\n');
+      note('Applied the follow-up change.');
+    } else {
+      note('Looked up the earlier run to answer the follow-up.');
+    }
     emit({ type: 'result', result: `You asked: ${question}\nNothing has changed since the run finished.` });
     return;
   }

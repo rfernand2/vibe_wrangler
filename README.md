@@ -41,8 +41,8 @@ Projects  ──▶  Tasks  ──▶  Comments
   - **anything else** (`blocked`, `on hold`, `idea`, …) — user-defined; the agent ignores these
 - **Comments** — an append-only conversation per task. The agent writes progress notes while it works and a
   summary when it finishes. You can add your own comments too (review notes, test results, follow-ups) —
-  and on a task that has already finished, a comment is a question the agent comes back to answer. See
-  [chatting with a finished task](#chatting-with-a-finished-task).
+  and on a task that has already finished, a comment sets it back to active and the agent continues. See
+  [reactivating a closed task](#reactivating-a-closed-task).
 - **Attachments** — paste a screenshot straight into a task description or a comment, drop files onto
   either box, or use **Attach files**. Images render inline; everything else becomes a download link.
   The agent sees each attachment as a path to a real file on disk, so it can open your mock-up, log or
@@ -210,28 +210,29 @@ agent has said its piece. So the terminal event the CLI prints is treated as the
 exit follows within `AGENT_EXIT_GRACE_MS` the leftovers are killed and the run is closed out on the
 strength of that result rather than left `active` indefinitely.
 
-## Chatting with a finished task
+## Reactivating a closed task
 
-A task that reached **completed** or **failed** still has questions left in it — *what did you actually
-change? why did you stop? is that test flaky or did I break it?* — and no run coming that would answer
-them. So on those two statuses the comment box is a chat: add a message and the app starts an agent for
-it, which reads the task, the whole thread and the code, replies in the thread, and shuts down again.
-Nothing is left running between messages.
+A task that reached **completed**, **failed** or **cancelled** can still have something left to say —
+*what did you actually change? why did you stop? please also fix the other file.* There is no run coming
+that would pick that up, so a comment on those statuses reopens the task: it goes back to **active**,
+the elapsed clock keeps the time already spent and starts ticking again, and the agent continues as if
+this were a regular run. When it is done it closes the task the same way — a short answer in the thread,
+or a code fix that is committed and merged.
 
-The reply is a conversation and not a second run, so:
+A few things stay from the run that finished, rather than starting over:
 
-- **The task does not move.** Its status, checklist, timings and branch are exactly as the run that
-  finished left them. Answering a question about a failed task is not a retry — use **Run** for that.
-- **The agent is told to change nothing.** There is no worktree to isolate it in (the task's was merged
-  and deleted), so it answers from your checkout, reading files and running read-only commands like
-  `git log`. If you want work done, run the task again or write a new one.
-- **The whole reply is the message.** There is no `NOTE:`/`PLAN:`/`DONE:` protocol here — the closing
-  message is posted to the thread as it stands, and nothing it says builds a checklist.
+- **The clock continues.** The time already on the timer is kept; only the idle gap while the task was
+  closed is skipped, so the live number is prior work plus this session.
+- **The checklist is left as it was**, so the agent can tick remaining items rather than planning from
+  scratch.
 - **The exchange is appended to that run's transcript**, so **Raw log** still shows one continuous
   record of the run and everything asked about it afterwards.
 
 A note on a task in any other status is just filed, as before: `ready` and `active` tasks have an agent
 reaching their thread anyway, so there is nothing to spend a run on.
+
+Pressing **Run** on a closed task is still a fresh attempt: new clock, blank checklist, new branch. A
+comment is the way to continue the same conversation.
 
 ## Running several tasks at once
 
@@ -274,9 +275,10 @@ app cannot tell whether it succeeded. It commits whatever the agent left in the 
 the task branch, marks the task `failed`, and tells you where the work is. Nothing is thrown away, and
 nothing is merged on a guess.
 
-An agent that was mid-reply to a comment is the one exception: its answer was only ever going to reach
-the pipe that died with the app, so it is stopped rather than adopted, and the thread is told to ask
-again. The finished task it was answering about is left exactly as it was.
+A leftover reply from an older build (one that answered without reopening the task) is the one
+exception: its answer was only ever going to reach the pipe that died with the app, so it is stopped
+rather than adopted, and the thread is told to ask again. The closed task it was answering about is
+left as it was. A comment that reopens a task is a regular run, so a restart treats it like any other.
 
 Runs whose process is gone are closed out, and any task still marked `active` with no agent behind it
 goes back to `ready`. Pids get recycled, so a recorded pid is only adopted when the process at that pid
@@ -424,8 +426,8 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 - `test/worktree.js` builds throwaway git repos and runs two agents on one repo at the same time,
   using a scripted stand-in for the CLI. It checks that both changes land, that a genuine merge
   conflict is resolved without losing either side, that non-git projects fall back to a queue, and
-  that a failed run leaves your checkout clean. It also asks a finished task a question and checks the
-  answer arrives, the agent stops again, and the task itself is untouched.
+  that a failed run leaves your checkout clean. It also comments on a finished task and checks the
+  task goes active again, the clock keeps the time already spent, and the agent finishes as a regular run.
 
 ## API
 
@@ -444,7 +446,7 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `GET` | `/api/tasks/:id` | Task detail with comments |
 | `PUT` | `/api/tasks/:id` | Update a task |
 | `DELETE` | `/api/tasks/:id` | Delete a task |
-| `POST` | `/api/tasks/:id/comments` | Add a comment — on a finished task this starts an agent to answer it, and the response says `replying: true` |
+| `POST` | `/api/tasks/:id/comments` | Add a comment — on a closed task this reopens it and starts the agent, and the response says `replying: true` |
 | `DELETE` | `/api/comments/:id` | Delete a comment |
 | `POST` | `/api/attachments` | Upload a file — the body is the file, the name rides in `X-Filename` |
 | `GET` | `/attachments/:file` | Serve an uploaded file back |

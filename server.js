@@ -79,7 +79,7 @@ function withComments(task) {
     ...task,
     comments: comments.listForTask(task.id),
     running: agent.isRunning(task.id),
-    // A finished task with an agent on it is one writing a reply, which the thread should say.
+    // A closed task with an agent on it is one that a comment just reopened.
     replying: agent.isReplying(task.id),
     chats: agent.canChat(task),
   };
@@ -311,8 +311,7 @@ async function api(req, res, url) {
       if (!body.body?.trim()) return json(res, 400, { error: 'Comment cannot be empty' });
       const author = body.author === 'agent' ? 'agent' : 'user';
       const comment = comments.create({ task_id: id, author, body: body.body.trim() });
-      // A note added to a task that has already finished is a question nobody is coming to answer, so
-      // an agent is started for it and stops again as soon as it has replied. The reply arrives on the
+      // A note added to a closed task reopens it and starts the agent again. The reply arrives on the
       // change stream in its own time; the comment itself is not held up waiting for it.
       const replying = author === 'user' && agent.reply(id, comment);
       return json(res, 201, { ...comment, replying });

@@ -357,14 +357,36 @@ const tasks = {
     }
     return tasks.get(id);
   },
-  /** Entering and leaving 'active' are what bracket a run, so the clock lives here. */
-  setStatus(id, status) {
-    const cur = q('SELECT status FROM tasks WHERE id = ?').get(id);
+  /**
+   * Entering and leaving 'active' are what bracket a run, so the clock lives here.
+   * `resume` is for a comment that reopens a closed task: the elapsed time already on the clock
+   * is kept and the timer starts ticking again, rather than starting from zero.
+   */
+  setStatus(id, status, { resume = false } = {}) {
+    const cur = q('SELECT status, started_at, finished_at FROM tasks WHERE id = ?').get(id);
     if (!cur) return null;
     let clock = '';
-    if (status === 'active' && cur.status !== 'active') clock = `, started_at = datetime('now'), finished_at = NULL`;
-    else if (cur.status === 'active' && status !== 'active') clock = `, finished_at = datetime('now')`;
-    q(`UPDATE tasks SET status = ?${clock}, updated_at = datetime('now') WHERE id = ?`).run(status, id);
+    const args = [status];
+    if (status === 'active' && cur.status !== 'active') {
+      if (resume && cur.started_at) {
+        // Slide the start forward by the idle gap so the live timer shows prior work + this session.
+        const start = Date.parse(String(cur.started_at).replace(' ', 'T') + 'Z');
+        const end = cur.finished_at
+          ? Date.parse(String(cur.finished_at).replace(' ', 'T') + 'Z')
+          : Date.now();
+        const elapsedSec = Number.isFinite(start) && Number.isFinite(end)
+          ? Math.max(0, Math.round((end - start) / 1000))
+          : 0;
+        clock = `, started_at = datetime('now', ?), finished_at = NULL`;
+        args.push(`-${elapsedSec} seconds`);
+      } else {
+        clock = `, started_at = datetime('now'), finished_at = NULL`;
+      }
+    } else if (cur.status === 'active' && status !== 'active') {
+      clock = `, finished_at = datetime('now')`;
+    }
+    args.push(id);
+    q(`UPDATE tasks SET status = ?${clock}, updated_at = datetime('now') WHERE id = ?`).run(...args);
     return tasks.get(id);
   },
   setLogFile(id, logFile) {

@@ -8,7 +8,7 @@
  * to Grok must not borrow Claude's model just because it never picked one of its own.
  */
 function taskAgent(task, defaults) {
-  if (task.last_harness && ['active', 'completed', 'failed'].includes(task.status)) {
+  if (task.last_harness && ['active', 'completed', 'failed', 'cancelled'].includes(task.status)) {
     return { harness: task.last_harness, provider: task.last_provider, model: task.last_model };
   }
   if (task.harness) return { harness: task.harness, provider: task.provider, model: task.model };

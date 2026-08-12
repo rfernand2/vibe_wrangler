@@ -658,16 +658,28 @@ async function main() {
 
   await call('PUT', '/api/settings', { harness: 'claude', model: 'claude-opus-5' });
 
-  // --- a note on a finished task is answered, not just filed ---
+  // --- a note on a finished task reopens it and the agent continues ---
   const done = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Finished' })).body;
   await call('PUT', `/api/tasks/${done.id}`, { status: 'completed' });
   const posted = (await call('POST', `/api/tasks/${done.id}/comments`, { body: 'what did you change?' })).body;
-  assert.equal(posted.replying, true, 'the comment started an agent to answer it');
-  for (let i = 0; i < 60 && (await call('GET', `/api/tasks/${done.id}`)).body.replying; i++) await sleep(100);
+  assert.equal(posted.replying, true, 'the comment started an agent to continue the task');
+  for (let i = 0; i < 60 && ['active', 'ready', 'completed'].includes((await call('GET', `/api/tasks/${done.id}`)).body.status); i++) {
+    await sleep(100);
+  }
   const answered = (await call('GET', `/api/tasks/${done.id}`)).body;
-  assert.equal(answered.status, 'completed', 'answering a comment does not re-open the task');
+  assert.equal(answered.status, 'failed', 'a follow-up that cannot start fails like any other run');
   assert.match(answered.comments.at(-1).body, /Claude Code CLI/i, 'a reply that cannot start says so in the thread');
-  ok('a comment on a finished task spins an agent up to answer, and back down again');
+  ok('a comment on a finished task reopens it and the agent runs');
+
+  const canned = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Cancelled' })).body;
+  await call('PUT', `/api/tasks/${canned.id}`, { status: 'cancelled' });
+  const postedCancel = (await call('POST', `/api/tasks/${canned.id}/comments`, { body: 'please continue' })).body;
+  assert.equal(postedCancel.replying, true, 'a cancelled task is reopened by a comment');
+  for (let i = 0; i < 60 && ['active', 'ready'].includes((await call('GET', `/api/tasks/${canned.id}`)).body.status); i++) {
+    await sleep(100);
+  }
+  assert.equal((await call('GET', `/api/tasks/${canned.id}`)).body.status, 'failed');
+  ok('a comment on a cancelled task starts the agent again');
 
   const filed = (await call('POST', `/api/tasks/${modelOnly.id}/comments`, { body: 'just a note' })).body;
   assert.equal(filed.replying, false);

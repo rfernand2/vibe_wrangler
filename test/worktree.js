@@ -16,7 +16,7 @@ process.env.CLAUDE_BIN = makeFakeCli();
 // Long enough that a normal run always closes first, short enough to keep the suite quick.
 process.env.AGENT_EXIT_GRACE_MS = '1500';
 
-const { projects, tasks, comments } = require('../db');
+const { db, projects, tasks, comments } = require('../db');
 const agent = require('../agent');
 const git = require('../git');
 
@@ -226,12 +226,19 @@ async function main() {
   assert.equal(summary, '### Summary\nAll good.');
   ok('the summary is what follows the last directive, not the whole run');
 
-  // --- a note on a finished task is answered by an agent that starts, replies, and stops ---
+  // --- a note on a finished task reopens it and the agent continues as a regular run ---
   const logBefore = tasks.get(t1.id).log_file;
+  // Give the first run a known duration so we can see the clock continue rather than reset.
+  db.prepare(`UPDATE tasks SET started_at = datetime(finished_at, '-45 seconds') WHERE id = ?`).run(t1.id);
+  const prior = tasks.get(t1.id);
+  const priorMs = new Date(prior.finished_at + 'Z') - new Date(prior.started_at + 'Z');
+
   const asked = comments.create({ task_id: t1.id, author: 'user', body: 'Which file did you change?' });
   assert.equal(agent.reply(t1.id, asked), true);
-  assert.ok(agent.isReplying(t1.id), 'an agent is up for the reply');
-  for (let i = 0; i < 300 && agent.isReplying(t1.id); i++) await sleep(100);
+  assert.ok(agent.isReplying(t1.id), 'an agent is up for the follow-up');
+  assert.equal(tasks.get(t1.id).status, 'active', 'a comment reopens the task');
+  assert.equal(tasks.get(t1.id).finished_at, null, 'the timer is running again');
+  await settle([t1.id]);
   assert.ok(!agent.isReplying(t1.id) && !agent.isRunning(t1.id), 'and it is spun back down again');
 
   const answer = comments.listForTask(t1.id).at(-1);
@@ -239,23 +246,46 @@ async function main() {
   assert.match(answer.body, /You asked: Which file did you change\?/, 'the reply answers the message');
   ok('a comment on a completed task is answered by an agent that then stops');
 
-  assert.equal(tasks.get(t1.id).status, 'completed', 'answering does not re-open the task');
+  const afterAsk = tasks.get(t1.id);
+  assert.equal(afterAsk.status, 'completed', 'the follow-up finishes like a regular run');
+  const afterMs = new Date(afterAsk.finished_at + 'Z') - new Date(afterAsk.started_at + 'Z');
+  assert.ok(afterMs >= priorMs, 'the clock kept the time already spent');
+  ok('the elapsed timer continues across the follow-up');
+
   assert.deepEqual(tasks.get(t1.id).checklist.map((i) => i.done), [true, true, false],
     'the finished run\'s checklist is left as it was');
-  assert.equal(run(repo, 'status', '--porcelain'), '', 'the reply left the checkout alone');
-  ok('the task it answered about is untouched by the answer');
+  assert.equal(run(repo, 'status', '--porcelain'), '', 'a question-only follow-up left the checkout alone');
+  ok('a question on a closed task does not rewrite the repo');
 
   assert.equal(tasks.get(t1.id).log_file, logBefore, 'the raw log still points at the run');
-  assert.match(read(process.env.VIBE_WRANGLER_LOGS, logBefore), /reply to a comment on task/);
+  assert.match(read(process.env.VIBE_WRANGLER_LOGS, logBefore), /has been reopened because the human added a comment/);
   ok('the exchange is appended to that run\'s transcript');
 
-  // A failed task is the one people most want to ask about, so it answers too.
+  const fix = comments.create({
+    task_id: t1.id, author: 'user', body: 'FAKE_APPEND followup.txt|from comment',
+  });
+  assert.equal(agent.reply(t1.id, fix), true);
+  await settle([t1.id]);
+  assert.equal(tasks.get(t1.id).status, 'completed');
+  assert.match(read(repo, 'followup.txt'), /from comment/);
+  ok('a follow-up comment can still land a code fix');
+
+  // A failed task is reopened the same way, then finishes as a regular run.
   const why = comments.create({ task_id: t7c.id, author: 'user', body: 'Why did you stop?' });
   assert.equal(agent.reply(t7c.id, why), true);
-  for (let i = 0; i < 300 && agent.isReplying(t7c.id); i++) await sleep(100);
+  assert.equal(tasks.get(t7c.id).status, 'active', 'a comment reopens a failed task');
+  await settle([t7c.id]);
   assert.match(comments.listForTask(t7c.id).at(-1).body, /You asked: Why did you stop\?/);
-  assert.equal(tasks.get(t7c.id).status, 'failed', 'it stays failed, ready to be run again');
-  ok('a failed task answers questions without being retried');
+  assert.equal(tasks.get(t7c.id).status, 'completed', 'the follow-up is allowed to finish');
+  ok('a failed task is reopened by a comment and then finishes');
+
+  const tCancel = tasks.create({ project_id: p1.id, title: 'Task K', description: 'was cancelled' });
+  tasks.setStatus(tCancel.id, 'cancelled');
+  const again = comments.create({ task_id: tCancel.id, author: 'user', body: 'please pick this up' });
+  assert.equal(agent.reply(tCancel.id, again), true);
+  await settle([tCancel.id]);
+  assert.equal(tasks.get(tCancel.id).status, 'completed');
+  ok('a comment on a cancelled task reopens it and the agent finishes');
 
   // Nothing is spent on a task an agent is coming to anyway.
   const notRun = tasks.create({ project_id: p1.id, title: 'Task J' });

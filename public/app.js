@@ -853,15 +853,15 @@ function renderTask() {
     list.append(li);
   }
 
-  // A finished task still answers: saying so is the only way anyone would know to ask.
+  // A closed task still answers: saying so is the only way anyone would know a note reopens it.
   const hint = $('commentHint');
   hint.hidden = !(t.replying || t.chats);
   hint.classList.toggle('replying', Boolean(t.replying));
   hint.textContent = t.replying
-    ? 'The agent is reading the thread and writing a reply…'
-    : 'This task has finished. A note here starts the agent, which replies and then stops again.';
+    ? 'The agent is back on this task and will finish the conversation like a regular run…'
+    : 'This task has finished. A note here sets it back to active and the agent continues.';
   $('commentForm').body.placeholder = t.chats
-    ? 'Ask the agent about this task…'
+    ? 'Ask the agent, or tell it what to do next…'
     : 'Add a note (review findings, test results, follow-ups)…';
 }
 
