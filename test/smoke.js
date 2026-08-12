@@ -373,7 +373,14 @@ async function main() {
   assert.deepEqual(grokRead({ type: 'end', stopReason: 'EndTurn' }),
     { done: true, text: 'NOTE: hi\nand more', failed: false });
   assert.ok(harnesses.byId('grok').reader()({ type: 'end', stopReason: 'Error' }).failed);
+  // Running out of turns ends the run partway and reports it as cancelled, not as an error.
+  assert.ok(harnesses.byId('grok').reader()({ type: 'end', stopReason: 'Cancelled' }).failed);
   ok('a token-streamed transcript is buffered into whole lines');
+
+  // Single-turn is the CLI's default for a prompt file, and one turn is only ever a plan.
+  assert.ok(harnesses.byId('grok').args('grok-4.5', 'p.txt').includes('--max-turns'),
+    'the Grok CLI is given room for more than one turn');
+  ok('a harness that defaults to one turn is told to keep going');
 
   // Reaching a non-xAI endpoint means an alias has to exist in Grok's own config before it starts.
   const { harness: gh, provider: gp, model: gm } = harnesses.resolve('grok', 'ollama', 'ollama-devstral');

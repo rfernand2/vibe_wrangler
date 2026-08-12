@@ -233,6 +233,7 @@ Environment variables:
 | `CODEX_BIN` | `codex` | Path to the Codex CLI |
 | `GROK_BIN` | `grok` | Path to the Grok Build CLI |
 | `GROK_CONFIG` | `~/.grok/config.toml` | Grok's config file, where third-party model aliases are written |
+| `GROK_MAX_TURNS` | `200` | Ceiling on the agent turns one Grok Build run may take |
 | `AGENT_HARNESS` | `claude` | Default harness before one has been saved in Settings |
 | `AGENT_PROVIDER` | first provider of that harness | Default provider before one has been saved in Settings |
 | `AGENT_MODEL` | first model of that provider | Default model before one has been saved in Settings |
@@ -248,11 +249,14 @@ The agents are invoked as:
 ```
 claude -p --output-format stream-json --verbose --dangerously-skip-permissions --model <model>
 codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model <model> -
-grok --prompt-file <file> --output-format streaming-json --permission-mode bypassPermissions --model <model>
+grok --prompt-file <file> --output-format streaming-json --permission-mode bypassPermissions --max-turns 200 --model <model>
 ```
 
 Claude Code and Codex read the task prompt from stdin. Grok has no stdin mode and takes the prompt as an
 argument, which a long description would overflow on Windows, so it gets a file written beside the run's log.
+A prompt file is single-turn by default there, and one turn is only ever a plan — the model answers and the
+run ends before it has reached for a tool — so `--max-turns` is what makes it an agent rather than a
+chatbot. A run that exhausts that ceiling is reported as failed rather than finished.
 
 ### Third-party models
 

@@ -21,6 +21,13 @@ const GROK_BIN = process.env.GROK_BIN || 'grok';
 const GROK_CONFIG = process.env.GROK_CONFIG || path.join(os.homedir(), '.grok', 'config.toml');
 
 /**
+ * `--prompt-file` is single-turn: without a cap the model answers once and the run ends before it
+ * has reached for a single tool, which reads as an agent that wrote a plan and did nothing. This is
+ * a ceiling and not a target — a run that hits it ends `Cancelled` and is treated as failed.
+ */
+const GROK_MAX_TURNS = process.env.GROK_MAX_TURNS || '200';
+
+/**
  * Grok only reaches a non-xAI endpoint through an alias in its own config file, so choosing an
  * OpenRouter or Ollama model in the app means that alias has to exist before the CLI starts.
  * Appends and never rewrites: an alias already there may have been tuned by hand, and clobbering
@@ -172,6 +179,7 @@ const HARNESSES = [
       '--prompt-file', promptPath,
       '--output-format', 'streaming-json',
       '--permission-mode', 'bypassPermissions',
+      '--max-turns', GROK_MAX_TURNS,
       '--model', model,
     ],
     env() {},
@@ -184,7 +192,9 @@ const HARNESSES = [
       let all = '';
       return (evt) => {
         if (evt.type === 'end') {
-          return { done: true, text: all.trim(), failed: Boolean(evt.error) || evt.stopReason === 'Error' };
+          // `EndTurn` is the only way a run finishes having said everything it meant to. Anything
+          // else — an error, or `Cancelled` from running out of turns — stopped it partway.
+          return { done: true, text: all.trim(), failed: Boolean(evt.error) || evt.stopReason !== 'EndTurn' };
         }
         if (evt.type !== 'text' || typeof evt.data !== 'string') return null;
         all += evt.data;
