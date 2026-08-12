@@ -64,6 +64,17 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 }
 
 .btn-sm { padding: 3px 9px; font-size: 13px; }
+/* A square target for the `+` buttons, so the glyph is never the only clickable-looking part. */
+.btn-plus {
+  width: 34px;
+  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1.15;
+}
+.btn-sm.btn-plus { width: 28px; padding: 3px 0; font-size: 16px; }
 .btn-primary { background: #2b4f8f; border-color: #3a67b5; }
 .btn-primary:hover { background: #34609f; }
 .btn-danger { background: #4a2226; border-color: #6d3138; color: #ffc9c9; }
@@ -371,7 +382,7 @@ textarea.dropping { border-color: var(--accent); background: #1b2436; }
 }
 .att-file:hover { border-color: var(--accent); }
 
-/* ---------- Right-click tag menu ---------- */
+/* ---------- Right-click task menu ---------- */
 .menu {
   position: fixed;
   z-index: 15;
@@ -405,6 +416,8 @@ textarea.dropping { border-color: var(--accent); background: #1b2436; }
 .menu-text { text-transform: uppercase; font-size: 12px; letter-spacing: .04em; }
 .menu-add .menu-text { text-transform: none; letter-spacing: 0; color: var(--muted); }
 .menu-plain .menu-text { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.menu-arrow { margin-left: auto; color: var(--muted); }
+#tagMenu { z-index: 16; }
 .menu-sep { height: 1px; background: var(--line); margin: 3px 1px; }
 
 .toast {

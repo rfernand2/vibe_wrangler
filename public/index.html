@@ -25,7 +25,7 @@
     </button>
     <div class="sidebar-head">
       <h2>Projects</h2>
-      <button class="btn btn-primary btn-sm" id="newProjectBtn">New</button>
+      <button class="btn btn-primary btn-sm btn-plus" id="newProjectBtn" title="New project" aria-label="New project">+</button>
     </div>
     <ul class="project-list" id="projectList"></ul>
   </aside>
@@ -54,7 +54,7 @@
         <span class="spacer"></span>
         <button class="btn" id="runReadyBtn">Run all ready</button>
         <button class="btn" id="runFailedBtn">Retry failed</button>
-        <button class="btn btn-primary" id="newTaskBtn">New task</button>
+        <button class="btn btn-primary btn-plus" id="newTaskBtn" title="New task" aria-label="New task">+</button>
       </div>
 
       <div class="toolbar tag-toolbar" id="viewToolbar">
@@ -259,6 +259,7 @@
   <button class="menu-item menu-plain" id="settingsMenuBtn"><span class="menu-text">Settings&hellip;</span></button>
   <button class="menu-item menu-plain" id="aboutMenuBtn"><span class="menu-text">About</span></button>
 </div>
+<div class="menu" id="taskMenu" role="menu" hidden></div>
 <div class="menu" id="tagMenu" role="menu" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <script src="/app.js"></script>

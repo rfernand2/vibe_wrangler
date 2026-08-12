@@ -457,18 +457,79 @@ function renderTasks() {
       main.append(tagRow);
     }
 
-    li.oncontextmenu = (e) => { e.preventDefault(); openTagMenu(e, t); };
+    li.oncontextmenu = (e) => { e.preventDefault(); openTaskMenu(e, t); };
 
     li.append(gizmo, pill, main);
     list.append(li);
   }
 }
 
-/* ---------- Tag menu ---------- */
+/* ---------- Task menu ---------- */
 
 const closeTagMenu = () => { $('tagMenu').hidden = true; };
+const closeTaskMenu = () => { $('taskMenu').hidden = true; closeTagMenu(); };
 
-function openTagMenu(e, task) {
+/** Shows `menu` with its top-left at (x, y), nudged back inside the viewport. */
+function placeMenu(menu, x, y) {
+  // Rendered off-screen first so the size is known before it is clamped into the viewport.
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  menu.hidden = false;
+  const { width, height } = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - height - 8))}px`;
+}
+
+function menuCommand(label, onPick) {
+  const b = document.createElement('button');
+  b.className = 'menu-item menu-plain';
+  b.setAttribute('role', 'menuitem');
+  const text = document.createElement('span');
+  text.className = 'menu-text';
+  text.textContent = label;
+  b.append(text);
+  b.onclick = onPick;
+  return b;
+}
+
+const menuSeparator = () => {
+  const sep = document.createElement('div');
+  sep.className = 'menu-sep';
+  return sep;
+};
+
+function openTaskMenu(e, task) {
+  const menu = $('taskMenu');
+  menu.replaceChildren();
+  closeTagMenu();
+
+  const busy = task.status === 'active';
+  menu.append(menuCommand(busy ? 'Stop' : 'Run', run(async () => {
+    closeTaskMenu();
+    await (busy ? haltTask(task) : startTask(task));
+  })));
+  menu.append(menuCommand('Edit\u2026', () => { closeTaskMenu(); openTaskEditor(task); }));
+  menu.append(menuCommand('Delete\u2026', run(async () => {
+    closeTaskMenu();
+    await removeTask(task);
+  })));
+
+  const tags = menuCommand('Tags', () => {
+    if ($('tagMenu').hidden) openTagMenu(menu.getBoundingClientRect(), task);
+    else closeTagMenu();
+  });
+  tags.setAttribute('aria-haspopup', 'true');
+  const arrow = document.createElement('span');
+  arrow.className = 'menu-arrow';
+  arrow.textContent = '\u25B8';
+  tags.append(arrow);
+  menu.append(menuSeparator(), tags);
+
+  placeMenu(menu, e.clientX, e.clientY);
+}
+
+/** The tag list, as a flyout from the `Tags` row of the task menu that `anchor` describes. */
+function openTagMenu(anchor, task) {
   const menu = $('tagMenu');
   menu.replaceChildren();
 
@@ -484,7 +545,7 @@ function openTagMenu(e, task) {
     text.className = 'menu-text';
     text.textContent = label;
     b.append(mark, text);
-    b.onclick = run(async () => { closeTagMenu(); await onPick(); });
+    b.onclick = run(async () => { closeTaskMenu(); await onPick(); });
     return b;
   };
 
@@ -492,8 +553,6 @@ function openTagMenu(e, task) {
     menu.append(row(tag, task.tags.includes(tag), () => toggleTaskTag(task, tag)));
   }
 
-  const sep = document.createElement('div');
-  sep.className = 'menu-sep';
   const add = row('New tag\u2026', false, async () => {
     const entered = prompt('Tag to add to this task (it joins the menu for every task):');
     if (!entered?.trim()) return;
@@ -502,15 +561,9 @@ function openTagMenu(e, task) {
     if (!task.tags.includes(tag)) await toggleTaskTag(task, tag);
   });
   add.classList.add('menu-add');
-  menu.append(sep, add);
+  menu.append(menuSeparator(), add);
 
-  // Rendered off-screen first so the size is known before it is clamped into the viewport.
-  menu.style.left = '0px';
-  menu.style.top = '0px';
-  menu.hidden = false;
-  const { width, height } = menu.getBoundingClientRect();
-  menu.style.left = `${Math.min(e.clientX, window.innerWidth - width - 8)}px`;
-  menu.style.top = `${Math.min(e.clientY, window.innerHeight - height - 8)}px`;
+  placeMenu(menu, anchor.right + 2, anchor.top);
 }
 
 async function toggleTaskTag(task, tag) {
@@ -522,10 +575,12 @@ async function toggleTaskTag(task, tag) {
   if (state.task?.id === task.id) await refreshTask();
 }
 
-document.addEventListener('click', (e) => { if (!e.target.closest('#tagMenu')) closeTagMenu(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTagMenu(); });
-window.addEventListener('resize', closeTagMenu);
-window.addEventListener('scroll', closeTagMenu, true);
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#taskMenu, #tagMenu')) closeTaskMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTaskMenu(); });
+window.addEventListener('resize', closeTaskMenu);
+window.addEventListener('scroll', closeTaskMenu, true);
 
 /* ---------- App menu ---------- */
 
@@ -831,17 +886,18 @@ $('newTaskBtn').onclick = () => {
   fillTaskHarness(null);
   openDialog('taskDialog');
 };
-$('detailEditBtn').onclick = () => {
-  editingTask = state.task;
+function openTaskEditor(task) {
+  editingTask = task;
   $('taskDialogTitle').textContent = 'Edit task';
   const f = $('taskForm');
-  f.title.value = state.task.title;
-  f.description.value = state.task.description;
-  f.status.value = state.task.status;
-  f.tags.value = state.task.tags.join(', ');
-  fillTaskHarness(state.task);
+  f.title.value = task.title;
+  f.description.value = task.description;
+  f.status.value = task.status;
+  f.tags.value = task.tags.join(', ');
+  fillTaskHarness(task);
   openDialog('taskDialog');
-};
+}
+$('detailEditBtn').onclick = () => openTaskEditor(state.task);
 $('taskForm').addEventListener('submit', run(async (e) => {
   const f = e.target;
   // A pick that matches the default is stored as no pick at all, so the task goes on following
@@ -864,28 +920,35 @@ $('taskForm').addEventListener('submit', run(async (e) => {
   toast('Task saved');
 }));
 
-$('detailDeleteBtn').onclick = run(async () => {
-  if (!confirm(`Delete task "${state.task.title}"?`)) return;
-  await api('DELETE', `/api/tasks/${state.task.id}`);
-  closeDrawer();
+async function removeTask(task) {
+  if (!confirm(`Delete task "${task.title}"?`)) return;
+  await api('DELETE', `/api/tasks/${task.id}`);
+  if (state.task?.id === task.id) closeDrawer();
   await loadProjects();
   await loadTasks();
   toast('Task deleted');
-});
+}
+$('detailDeleteBtn').onclick = run(() => removeTask(state.task));
 
-$('detailRunBtn').onclick = run(async () => {
-  state.task = await api('POST', `/api/tasks/${state.task.id}/run`);
-  renderTask();
+async function startTask(task) {
+  const started = await api('POST', `/api/tasks/${task.id}/run`);
+  if (state.task?.id === task.id) {
+    state.task = started;
+    renderTask();
+  }
   await loadProjects();
   await loadTasks();
   toast('Agent started');
-});
+}
+$('detailRunBtn').onclick = run(() => startTask(state.task));
 
-$('detailStopBtn').onclick = run(async () => {
-  await api('POST', `/api/tasks/${state.task.id}/stop`);
-  await refreshTask();
+async function haltTask(task) {
+  await api('POST', `/api/tasks/${task.id}/stop`);
+  if (state.task?.id === task.id) await refreshTask();
+  else await loadTasks();
   toast('Stopping agent');
-});
+}
+$('detailStopBtn').onclick = run(() => haltTask(state.task));
 
 $('detailLogBtn').onclick = run(async () => {
   const text = await api('GET', `/api/tasks/${state.task.id}/log`);
