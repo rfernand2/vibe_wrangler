@@ -64,6 +64,13 @@ function run() {
     return;
   }
 
+  // An agent that answers with its plan and ends the turn: nothing done, nothing said.
+  if (prompt.includes('FAKE_PLAN_ONLY')) {
+    say('PLAN: Read the code\nPLAN: Make the change');
+    emit({ type: 'result', result: 'PLAN: Read the code' });
+    return;
+  }
+
   say('PLAN: Read the code\nPLAN: Make the change\nPLAN: Check it works');
   say('DONE: read the CODE');
 

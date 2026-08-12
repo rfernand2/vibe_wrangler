@@ -145,6 +145,10 @@ PORT=4000 ./run.sh
 6. When it's done, the final summary is saved as a comment and the task flips to **completed** (or back to
    `ready` with an error comment if the run failed).
 
+Exiting cleanly is not taken as having done the work. A run that reported nothing at all — no summary, no
+note, not one checklist item ticked — is marked `failed` rather than completed, because the likeliest
+reason is an agent that answered with its plan and stopped. Whatever it did write stays on its branch.
+
 You then review the comments, test the change, and either close it out or add a follow-up task.
 
 A run is normally finalized when the CLI exits. It doesn't always get that far: a background process the

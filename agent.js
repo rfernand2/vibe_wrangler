@@ -42,6 +42,10 @@ function buildPrompt(task, project, history, iso) {
     'You are an autonomous coding agent working through a task queue. A human will read only the short',
     'notes you emit — they will not read your tool calls, diffs, or reasoning.',
     '',
+    'Nobody is at the keyboard. This is one turn: there is no reply coming, so anything you leave for',
+    'later never happens. Do not stop to describe what you are about to do, offer to begin, or wait for',
+    'a go-ahead — read files, edit them, and run commands until the task is actually finished.',
+    '',
     '## Reporting protocol',
     'Whenever you reach a meaningful milestone, emit a line that begins with `NOTE:` followed by one short,',
     'plain-language sentence aimed at a non-technical reader. For example:',
@@ -62,6 +66,8 @@ function buildPrompt(task, project, history, iso) {
     '  DONE: Fix the timezone handling',
     'Emit the whole plan up front so the human can see where you are going, then tick items off as you go',
     'rather than all at the end. Keep each item to one short line a non-technical reader would understand.',
+    'The plan is not the deliverable and emitting it does not end your turn — keep going straight into the',
+    'first item without pausing. A run that produced a plan and no work is a failed run.',
     'If the plan changes, emit a `PLAN:` line for the new sub-task — earlier items stay as they are.',
     'An item you finished but never ticked reads as work still outstanding, so tick it before you move on.',
     '',
@@ -426,8 +432,16 @@ function runTask(taskId) {
       if (result.status === 'stopped') return finish(taskId, 'ready', 'Agent run was stopped before it finished.', log);
       if (result.status === 'error') return finish(taskId, 'failed', result.message, log);
 
+      // Exiting cleanly is not the same as having done the work. An agent that reported nothing at
+      // all — no summary, no note, not one item ticked — most likely answered with its plan and
+      // ended the turn. Completing the task on that would take it off the board and merge an empty
+      // branch, so it is failed instead, with whatever it did write kept on the branch.
+      const ticked = checklist.listForTask(taskId).some((i) => i.done);
+      if (!result.summary && !result.sawNote && !ticked) {
+        return finish(taskId, 'failed', 'The agent stopped without reporting anything —'
+          + ' it likely ended its turn after planning rather than doing the work. Try running it again.', log);
+      }
       if (result.summary) comments.create({ task_id: taskId, author: 'agent', body: result.summary });
-      else if (!result.sawNote) comments.create({ task_id: taskId, author: 'agent', body: 'Finished, but produced no summary.' });
 
       if (!iso) return finish(taskId, 'completed', null, log);
       mergeBack(taskId, task, iso, log, 1);
