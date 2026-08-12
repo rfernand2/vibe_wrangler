@@ -89,7 +89,9 @@ command, a working directory and a stream of output, which is why supporting a s
 
   You only need the one you intend to run; the others simply won't start if selected.
 - **Optional, for Grok Build's other providers:**
-  - **OpenRouter** — an `OPENROUTER_API_KEY` in your environment
+  - **OpenRouter** — an `OPENROUTER_API_KEY` in your environment (`OPEN_ROUTER_KEY`,
+    `OPENROUTER_KEY` and `OPENROUTER_API_TOKEN` are accepted too). Set it *before* starting the app:
+    a variable added afterwards is invisible to a process that is already running.
   - **Ollama** — [Ollama](https://ollama.com) running locally, with the model you pick already pulled
     (`ollama pull qwen3-coder`)
 
@@ -279,6 +281,11 @@ as a `[model.<name>]` block appended to `GROK_CONFIG`. An alias already in the f
 have been tuned by hand, and clobbering someone's credentials or context window would be worse than doing
 nothing. The credential itself is never written: OpenRouter aliases point at `OPENROUTER_API_KEY` in your
 environment, and Ollama needs none.
+
+Because the alias names exactly one variable, a key kept under one of the other spellings people use is
+copied into that name for the run rather than left to fail. If it is under none of them the run stops
+before the CLI starts, saying which variable to set — the alternative is a bare `401 Missing Authentication
+header` from the far end, arriving after the worktree and branch have already been made.
 
 Deleting a block from that file is enough to have it rewritten from the app's defaults on the next run.
 

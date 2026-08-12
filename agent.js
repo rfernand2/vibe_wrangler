@@ -186,10 +186,24 @@ function finalSummary(text) {
   return lines.slice(last + 1).join('\n').trim() || stripDirectives(text);
 }
 
-function childEnv(harness) {
+function childEnv(harness, provider) {
   const env = { ...process.env };
-  harness.env(env);
+  harness.env(env, provider);
   return env;
+}
+
+/**
+ * A provider pointed at somebody else's endpoint is useless without its credential, and the CLI only
+ * reports that as a 401 from the far end after the run has already been billed a task's setup. Note
+ * the restart: the app reads the environment it was started with, so a variable set afterwards is
+ * invisible to it however permanently it was set.
+ */
+function missingKeyMessage(provider, env) {
+  const key = provider.register?.env_key;
+  if (!key || env[key]) return null;
+  const names = [key, ...(provider.register.env_alts || [])].join(', ');
+  return `No ${provider.name} API key in the environment, so the request would be rejected as`
+    + ` unauthorized. Set one of ${names} and restart Vibe Wrangler.`;
 }
 
 /** What the app will run with when neither the task nor anything else has an opinion. */
@@ -223,6 +237,13 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
   // A harness reaching somebody else's endpoint may need setting up before it can be started.
   harness.prepare?.(provider, model);
 
+  const env = childEnv(harness, provider);
+  const missingKey = missingKeyMessage(provider, env);
+  if (missingKey) {
+    log.write(`\n[config] ${missingKey}\n`);
+    return onDone({ status: 'spawn-error', message: missingKey });
+  }
+
   // Harnesses that cannot read stdin get the prompt as a file rather than an argument, which a
   // long prompt would overflow on Windows. It sits beside the log so it outlives the run.
   const promptFile = harness.input === 'file' && logFile ? `${logFile}.prompt.txt` : null;
@@ -230,7 +251,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
 
   const child = spawn(harness.bin, harness.args(model.id, promptFile), {
     cwd,
-    env: childEnv(harness),
+    env,
     // Only fixed flags reach the command line; the prompt never does.
     shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(harness.bin),
     stdio: ['pipe', 'pipe', 'pipe'],

@@ -170,7 +170,13 @@ const HARNESSES = [
         name: 'OpenRouter',
         // Grok reaches anything other than xAI through an alias in its own config file, so each
         // model here carries what that alias needs to be written. `id` is the alias itself.
-        register: { base_url: 'https://openrouter.ai/api/v1', env_key: 'OPENROUTER_API_KEY' },
+        register: {
+          base_url: 'https://openrouter.ai/api/v1',
+          env_key: 'OPENROUTER_API_KEY',
+          // The name OpenRouter documents is the one the alias asks for, but people keep their key
+          // under whichever of these they met first. Any of them will do.
+          env_alts: ['OPEN_ROUTER_KEY', 'OPENROUTER_KEY', 'OPENROUTER_API_TOKEN'],
+        },
         models: [
           { id: 'openrouter-deepseek-v4-flash', name: 'DeepSeek V4 Flash 0731', upstream: 'deepseek/deepseek-v4-flash-20260731' },
           { id: 'openrouter-mimo-v2-5', name: 'MiMo-V2.5', upstream: 'xiaomi/mimo-v2.5-20260422' },
@@ -203,7 +209,14 @@ const HARNESSES = [
       '--max-turns', GROK_MAX_TURNS,
       '--model', model,
     ],
-    env() {},
+    env(env, provider) {
+      // The alias names one variable, so a key kept under any of the other spellings is copied to it
+      // rather than left for the endpoint to reject as a bare 401 five seconds into the run.
+      const key = provider?.register?.env_key;
+      if (!key || env[key]) return;
+      const alt = (provider.register.env_alts || []).find((name) => env[name]?.trim());
+      if (alt) env[key] = env[alt].trim();
+    },
     /**
      * Grok streams a token at a time, so a directive arrives split across events. Holding them
      * until a boundary is what makes `NOTE:` and friends matchable at all, and releasing them at

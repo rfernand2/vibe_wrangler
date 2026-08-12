@@ -403,6 +403,20 @@ async function main() {
   assert.equal(toml, fs.readFileSync(process.env.GROK_CONFIG, 'utf8'), 'a native model needs no alias');
   ok('registers a third-party model with the Grok CLI, without clobbering the config');
 
+  // The alias names one variable, and a key kept under another spelling has to reach it or the far
+  // end answers 401 with nothing to say about why.
+  const or = harnesses.resolve('grok', 'openrouter', 'openrouter-deepseek-v4-flash');
+  const bridged = { OPEN_ROUTER_KEY: ' sk-or-test ' };
+  or.harness.env(bridged, or.provider);
+  assert.equal(bridged.OPENROUTER_API_KEY, 'sk-or-test');
+  const already = { OPENROUTER_API_KEY: 'mine', OPENROUTER_KEY: 'other' };
+  or.harness.env(already, or.provider);
+  assert.equal(already.OPENROUTER_API_KEY, 'mine', 'a key already under the right name is left alone');
+  const none = {};
+  or.harness.env(none, or.provider);
+  assert.deepEqual(none, {}, 'invents nothing when no key is set anywhere');
+  ok('an OpenRouter key set under any of its spellings reaches the name the alias asks for');
+
   assert.deepEqual((await call('GET', '/api/settings')).body,
     { harness: 'claude', provider: 'native', model: 'claude-opus-5' });
   ok('defaults to the first model of the first harness');
