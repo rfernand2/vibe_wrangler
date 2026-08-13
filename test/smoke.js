@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
 const { taskAgent, agentName } = require('../public/task-agent');
+const { handleCommentKeydown } = require('../public/comment-keys');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -52,6 +53,26 @@ async function main() {
   assert.equal(index.status, 200);
   assert.match(index.body, /Vibe Wrangler/);
   ok('serves the front end');
+
+  let submitted = 0;
+  const form = { requestSubmit() { submitted++; } };
+  const key = (overrides = {}) => ({
+    key: 'Enter', shiftKey: false, isComposing: false, prevented: false,
+    preventDefault() { this.prevented = true; },
+    ...overrides,
+  });
+  const enter = key();
+  assert.equal(handleCommentKeydown(enter, form), true);
+  assert.equal(enter.prevented, true, 'Return suppresses the textarea newline');
+  assert.equal(submitted, 1, 'Return submits the comment form');
+  const shiftEnter = key({ shiftKey: true });
+  assert.equal(handleCommentKeydown(shiftEnter, form), false);
+  assert.equal(shiftEnter.prevented, false, 'Shift-Return keeps the browser newline behavior');
+  assert.equal(submitted, 1, 'Shift-Return does not submit the comment form');
+  const composingEnter = key({ isComposing: true });
+  assert.equal(handleCommentKeydown(composingEnter, form), false);
+  assert.equal(submitted, 1, 'confirming composed text does not submit the comment form');
+  ok('uses Return to send comments and Shift-Return for new lines');
 
   const DEFAULTS = { harness: 'codex', provider: 'native', model: 'gpt-5.6-sol' };
   const ran = { last_harness: 'claude', last_provider: 'native', last_model: 'claude-opus-5' };
@@ -113,6 +134,10 @@ async function main() {
     return { running: true, output: '==> Verifying app config\n', status: 'running', error: null };
   };
   deployment.snapshot = () => ({ running: false, output: '', status: null, error: null });
+  deployment.deploy = async (project) => {
+    started = project;
+    return { ok: true };
+  };
 
   assert.equal((await call('POST', `/api/projects/${proj.id}/deploy`)).status, 409,
     'nothing has been pushed yet');
@@ -139,6 +164,26 @@ async function main() {
   projectStore.recordDeploy(proj.id, 'abc123');
   assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
   ok('a successful fly deploy clears the deploy flag');
+
+  const deployStatusProject = (await call('POST', '/api/projects', {
+    name: 'Deploy status', directory: workdir,
+  })).body;
+  assert.equal(deployStatusProject.deployment_needed, 0);
+  const shippedChange = (await call('POST', `/api/projects/${deployStatusProject.id}/tasks`, {
+    title: 'Shipped change',
+  })).body;
+  assert.equal((await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id).deployment_needed, 0);
+  await call('PUT', `/api/tasks/${shippedChange.id}`, { status: 'completed' });
+  let deployStatus = (await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id);
+  assert.equal(deployStatus.deployment_needed, 1);
+  assert.equal((await call('POST', `/api/projects/${deployStatusProject.id}/deploy`)).status, 200);
+  deployStatus = (await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id);
+  assert.equal(deployStatus.deployment_needed, 0);
+  await call('DELETE', `/api/projects/${deployStatusProject.id}`);
+  ok('tracks whether completed work still needs deployment');
 
   // --- tasks ---
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`, { title: '' })).status, 400);

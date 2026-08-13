@@ -259,9 +259,18 @@ async function api(req, res, url) {
           let stat;
           try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
           if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
-          if (!project.needs_deploy) return json(res, 409, { error: 'Nothing new to deploy — push to GitHub first' });
+          if (!project.needs_deploy && !project.deployment_needed) {
+            return json(res, 409, { error: 'Nothing new to deploy — push to GitHub first' });
+          }
           try {
-            return json(res, 202, deployment.start(project));
+            // A GitHub push waiting on fly uses the live job (202 + poll). Completed work
+            // that still needs shipping waits for fly and then clears that flag.
+            if (project.needs_deploy) {
+              return json(res, 202, deployment.start(project));
+            }
+            const result = await deployment.deploy(project);
+            projects.markDeployed(id);
+            return json(res, 200, result);
           } catch (err) {
             return json(res, 409, { error: err.message });
           }

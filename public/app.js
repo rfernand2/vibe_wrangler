@@ -204,8 +204,35 @@ function tickElapsed() {
 
 /* ---------- Projects ---------- */
 
+/**
+ * The sidebar selection survives a reload. Storage is best-effort — a browser that refuses it
+ * (private mode, blocked cookies) just falls back to the default "first project" behaviour.
+ */
+const SELECTION_KEY = 'vw.selection';
+
+function saveSelection() {
+  try {
+    localStorage.setItem(SELECTION_KEY, JSON.stringify({ view: state.view, projectId: state.projectId }));
+  } catch {}
+}
+
+function restoreSelection() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) || 'null');
+    if (!saved) return;
+    if (saved.view === 'all' || saved.view === 'project') state.view = saved.view;
+    // loadProjects() drops the id again if that project has since been deleted.
+    if (saved.projectId != null) state.projectId = saved.projectId;
+  } catch {}
+}
+
 async function loadProjects() {
   state.projects = await api('GET', '/api/projects');
+
+  // Settle which project is current before drawing, so the list highlights it on the first paint.
+  if (state.projectId && !state.projects.some((p) => p.id === state.projectId)) state.projectId = null;
+  if (!state.projectId && state.projects.length) state.projectId = state.projects[0].id;
+  saveSelection();
 
   const total = state.projects.reduce((n, p) => n + p.task_count, 0);
   const ready = state.projects.reduce((n, p) => n + p.ready_count, 0);
@@ -222,6 +249,13 @@ async function loadProjects() {
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
+    if (p.deployment_needed) {
+      const deployNeeded = document.createElement('span');
+      deployNeeded.className = 'deploy-needed';
+      deployNeeded.textContent = 'Deploy';
+      deployNeeded.title = 'Deployment needed';
+      name.append(' ', deployNeeded);
+    }
     const count = document.createElement('span');
     count.className = 'pcount';
     count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +
@@ -231,8 +265,6 @@ async function loadProjects() {
     li.append(btn);
     list.append(li);
   }
-  if (state.projectId && !state.projects.some((p) => p.id === state.projectId)) state.projectId = null;
-  if (!state.projectId && state.projects.length) state.projectId = state.projects[0].id;
 }
 
 const selectProject = run(async (id) => {
@@ -1347,6 +1379,10 @@ $('commentForm').addEventListener('submit', run(async (e) => {
   await loadTasks();
 }));
 
+$('commentForm').body.addEventListener('keydown', (e) => {
+  handleCommentKeydown(e, $('commentForm'));
+});
+
 $('closeDrawerBtn').onclick = closeDrawer;
 $('drawerScrim').onclick = closeDrawer;
 document.addEventListener('keydown', (e) => {
@@ -1364,6 +1400,7 @@ run(async () => {
   state.harnesses = cfg.harnesses;
   state.settings = await api('GET', '/api/settings');
   showAgentInfo();
+  restoreSelection();
   await loadProjects();
   await loadTasks();
   connectEvents();

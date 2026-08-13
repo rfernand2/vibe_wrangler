@@ -146,6 +146,7 @@ if (addColumn('projects', 'next_task_number', 'INTEGER NOT NULL DEFAULT 1')) {
       COALESCE((SELECT MAX(number) + 1 FROM tasks WHERE tasks.project_id = projects.id), 1)
   `);
 }
+addColumn('projects', 'deployment_needed', 'INTEGER NOT NULL DEFAULT 0');
 
 /**
  * Every write in this file lands through a prepared statement's run(), so hooking it here is the one
@@ -219,6 +220,10 @@ const projects = {
     if (!sha) return projects.get(id);
     q(`UPDATE projects SET last_deployed_sha = ?, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
     return projects.get(id);
+  },
+  markDeployed(id) {
+    return q(`UPDATE projects SET deployment_needed = 0, updated_at = datetime('now') WHERE id = ?`)
+      .run(id).changes > 0;
   },
 };
 
@@ -344,6 +349,9 @@ const tasks = {
     `).run(project_id, number, title, description, status, harness, provider, model);
     const id = Number(lastInsertRowid);
     tasks.setTags(id, tags);
+    if (status === 'completed') {
+      q('UPDATE projects SET deployment_needed = 1 WHERE id = ?').run(project_id);
+    }
     return tasks.get(id);
   },
   update(id, { title, description, status, tags, harness, provider, model }) {
@@ -412,6 +420,10 @@ const tasks = {
     }
     args.push(id);
     q(`UPDATE tasks SET status = ?${clock}, updated_at = datetime('now') WHERE id = ?`).run(...args);
+    if (status === 'completed' && cur.status !== 'completed') {
+      q(`UPDATE projects SET deployment_needed = 1
+         WHERE id = (SELECT project_id FROM tasks WHERE id = ?)`).run(id);
+    }
     return tasks.get(id);
   },
   setLogFile(id, logFile) {
