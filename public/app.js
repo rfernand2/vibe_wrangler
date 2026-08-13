@@ -1330,6 +1330,10 @@ $('commentForm').addEventListener('submit', run(async (e) => {
   await loadTasks();
 }));
 
+$('commentForm').body.addEventListener('keydown', (e) => {
+  handleCommentKeydown(e, $('commentForm'));
+});
+
 $('closeDrawerBtn').onclick = closeDrawer;
 $('drawerScrim').onclick = closeDrawer;
 document.addEventListener('keydown', (e) => {
