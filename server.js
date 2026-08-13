@@ -258,7 +258,9 @@ async function api(req, res, url) {
         try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
         if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
         try {
-          return json(res, 200, await deployment.deploy(project));
+          const result = await deployment.deploy(project);
+          projects.markDeployed(id);
+          return json(res, 200, result);
         } catch (err) {
           return json(res, 409, { error: err.message });
         }

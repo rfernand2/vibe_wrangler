@@ -222,6 +222,13 @@ async function loadProjects() {
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
+    if (p.deployment_needed) {
+      const deployNeeded = document.createElement('span');
+      deployNeeded.className = 'deploy-needed';
+      deployNeeded.textContent = 'Deploy';
+      deployNeeded.title = 'Deployment needed';
+      name.append(' ', deployNeeded);
+    }
     const count = document.createElement('span');
     count.className = 'pcount';
     count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +

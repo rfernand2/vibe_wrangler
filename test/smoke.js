@@ -118,6 +118,26 @@ async function main() {
   await call('DELETE', `/api/projects/${noDirectory.id}`);
   ok('deploys from the selected project directory');
 
+  const deployStatusProject = (await call('POST', '/api/projects', {
+    name: 'Deploy status', directory: workdir,
+  })).body;
+  assert.equal(deployStatusProject.deployment_needed, 0);
+  const shippedChange = (await call('POST', `/api/projects/${deployStatusProject.id}/tasks`, {
+    title: 'Shipped change',
+  })).body;
+  assert.equal((await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id).deployment_needed, 0);
+  await call('PUT', `/api/tasks/${shippedChange.id}`, { status: 'completed' });
+  let deployStatus = (await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id);
+  assert.equal(deployStatus.deployment_needed, 1);
+  assert.equal((await call('POST', `/api/projects/${deployStatusProject.id}/deploy`)).status, 200);
+  deployStatus = (await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id);
+  assert.equal(deployStatus.deployment_needed, 0);
+  await call('DELETE', `/api/projects/${deployStatusProject.id}`);
+  ok('tracks whether completed work still needs deployment');
+
   // --- tasks ---
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`, { title: '' })).status, 400);
   ok('rejects a task with no title');

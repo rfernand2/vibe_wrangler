@@ -147,6 +147,19 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .project-list button.selected { background: var(--panel-2); border-color: var(--accent); }
 .pname { display: block; font-weight: 600; }
 .pcount { display: block; font-size: 12px; color: var(--muted); }
+.deploy-needed {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border: 1px solid #9a6a27;
+  border-radius: 4px;
+  color: #f1bd70;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
 
 .content { flex: 1; padding: 18px 22px; min-width: 0; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }
