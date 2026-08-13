@@ -348,7 +348,7 @@ function renderFilters() {
 }
 
 async function loadTasks() {
-  const projectOnly = ['editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn'];
+  const projectOnly = ['deployProjectBtn', 'editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn'];
 
   if (state.view === 'all') {
     $('emptyState').hidden = true;
@@ -984,6 +984,19 @@ $('deleteProjectBtn').onclick = run(async () => {
   await loadProjects();
   await loadTasks();
   toast('Project deleted');
+});
+
+$('deployProjectBtn').onclick = run(async () => {
+  const button = $('deployProjectBtn');
+  button.disabled = true;
+  button.textContent = 'Deploying…';
+  try {
+    await api('POST', `/api/projects/${state.projectId}/deploy`);
+    toast('Deployment completed');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Deploy';
+  }
 });
 
 let editingTask = null;

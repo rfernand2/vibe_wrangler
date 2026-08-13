@@ -102,6 +102,22 @@ async function main() {
   assert.equal(renamed.directory, workdir, 'unspecified fields are preserved');
   ok('updates a project');
 
+  const deployment = require('../deploy');
+  let deployed;
+  deployment.deploy = async (project) => {
+    deployed = project;
+    return { ok: true };
+  };
+  const deploymentResult = await call('POST', `/api/projects/${proj.id}/deploy`);
+  assert.equal(deploymentResult.status, 200);
+  assert.equal(deployed.id, proj.id);
+  assert.equal(deployed.directory, workdir);
+  assert.equal((await call('POST', '/api/projects/999999/deploy')).status, 404);
+  const noDirectory = (await call('POST', '/api/projects', { name: 'No directory' })).body;
+  assert.equal((await call('POST', `/api/projects/${noDirectory.id}/deploy`)).status, 400);
+  await call('DELETE', `/api/projects/${noDirectory.id}`);
+  ok('deploys from the selected project directory');
+
   // --- tasks ---
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`, { title: '' })).status, 400);
   ok('rejects a task with no title');

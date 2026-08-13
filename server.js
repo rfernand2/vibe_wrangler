@@ -10,6 +10,7 @@ const agent = require('./agent');
 const events = require('./events');
 const attachments = require('./attachments');
 const harnesses = require('./harnesses');
+const deployment = require('./deploy');
 const { version } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -247,6 +248,20 @@ async function api(req, res, url) {
       if (c === 'run-failed' && method === 'POST') {
         if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
         return json(res, 200, { started: agent.runFailed(id) });
+      }
+
+      if (c === 'deploy' && method === 'POST') {
+        const project = projects.get(id);
+        if (!project) return json(res, 404, { error: 'Project not found' });
+        if (!project.directory) return json(res, 400, { error: 'Set a working directory before deploying' });
+        let stat;
+        try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
+        if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
+        try {
+          return json(res, 200, await deployment.deploy(project));
+        } catch (err) {
+          return json(res, 409, { error: err.message });
+        }
       }
     }
   }
