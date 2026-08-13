@@ -1157,20 +1157,28 @@ function renderPerformance(rows) {
   $('performanceLegend').hidden = rows.length === 0;
   if (!rows.length) return;
 
-  const width = Math.max(700, rows.length * 72 + 120);
+  // Rows arrive oldest first, so each agent's runs land in the order it was used. A point's
+  // position along x is its place in that agent's own run of tasks, not the date it was graded:
+  // the lines then start together and can be read against each other run for run.
+  const groups = new Map();
+  for (const row of rows) {
+    const label = performanceAgent(row);
+    if (!groups.has(label)) groups.set(label, []);
+    const points = groups.get(label);
+    points.push({ row, use: points.length + 1 });
+  }
+  const maxUses = Math.max(...[...groups.values()].map((points) => points.length));
+
+  const width = Math.max(700, maxUses * 72 + 120);
   const height = 390;
   const margin = { top: 22, right: 24, bottom: 72, left: 48 };
   const plotW = width - margin.left - margin.right;
   const plotH = height - margin.top - margin.bottom;
-  const times = rows.map((r) => parseTs(r.graded_at)?.getTime() || 0);
-  const minTime = Math.min(...times);
-  const maxTime = Math.max(...times);
-  const x = (time, index) => maxTime === minTime
-    ? margin.left + (rows.length === 1 ? plotW / 2 : index * plotW / (rows.length - 1))
-    : margin.left + ((time - minTime) / (maxTime - minTime)) * plotW;
+  const x = (use) => margin.left
+    + (maxUses === 1 ? plotW / 2 : ((use - 1) / (maxUses - 1)) * plotW);
   const y = (grade) => margin.top + plotH - (GRADES.indexOf(grade) / (GRADES.length - 1)) * plotH;
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img',
-    'aria-label': 'Agent grades over time, from F at the bottom to A plus at the top' });
+    'aria-label': 'Agent grades by how many times each agent has been used, from F at the bottom to A plus at the top' });
 
   for (const grade of GRADES) {
     const yy = y(grade);
@@ -1182,40 +1190,36 @@ function renderPerformance(rows) {
     svg.append(label);
   }
 
-  const groups = new Map();
-  rows.forEach((row, index) => {
-    const label = performanceAgent(row);
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push({ row, index, time: times[index] });
-  });
-
   [...groups.entries()].forEach(([label, points], groupIndex) => {
     const color = CHART_COLORS[groupIndex % CHART_COLORS.length];
     if (points.length > 1) {
       svg.append(svgEl('polyline', {
-        points: points.map((p) => `${x(p.time, p.index)},${y(p.row.grade)}`).join(' '),
+        points: points.map((p) => `${x(p.use)},${y(p.row.grade)}`).join(' '),
         fill: 'none', stroke: color, 'stroke-width': 2,
       }));
     }
     for (const p of points) {
-      const dot = svgEl('circle', { cx: x(p.time, p.index), cy: y(p.row.grade), r: 5,
+      const dot = svgEl('circle', { cx: x(p.use), cy: y(p.row.grade), r: 5,
         fill: color, class: 'chart-point', tabindex: 0 });
       const title = svgEl('title');
-      title.textContent = `${label}: ${p.row.grade} — ${p.row.project_name} #${p.row.task_number} ${p.row.task_title} — ${when(p.row.graded_at)}`;
+      title.textContent = `${label}: ${p.row.grade} — use ${p.use} — ${p.row.project_name} #${p.row.task_number} ${p.row.task_title} — ${when(p.row.graded_at)}`;
       dot.append(title);
       svg.append(dot);
     }
   });
 
-  const dateIndexes = rows.length <= 7
-    ? rows.map((_, i) => i)
-    : [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
-  for (const index of [...new Set(dateIndexes)]) {
-    const label = svgEl('text', { x: x(times[index], index), y: height - 42, 'text-anchor': 'end',
-      transform: `rotate(-35 ${x(times[index], index)} ${height - 42})`, class: 'chart-axis-label' });
-    label.textContent = parseTs(rows[index].graded_at)?.toLocaleDateString() || '';
+  // A tick per use while they still fit, thinned to a round step once they would collide.
+  const step = Math.max(1, Math.ceil(maxUses / 12));
+  for (let use = 1; use <= maxUses; use += step) {
+    const label = svgEl('text', { x: x(use), y: height - 42, 'text-anchor': 'middle',
+      class: 'chart-axis-label' });
+    label.textContent = String(use);
     svg.append(label);
   }
+  const axisTitle = svgEl('text', { x: margin.left + plotW / 2, y: height - 14,
+    'text-anchor': 'middle', class: 'chart-axis-label' });
+  axisTitle.textContent = 'Times the agent has been used';
+  svg.append(axisTitle);
   $('performanceChart').replaceChildren(svg);
 
   const legend = $('performanceLegend');
