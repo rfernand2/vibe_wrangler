@@ -122,6 +122,10 @@ addColumn('tasks', 'graded_harness', 'TEXT');
 addColumn('tasks', 'graded_provider', 'TEXT');
 addColumn('tasks', 'graded_model', 'TEXT');
 
+/** The SHA last pushed to GitHub, and the SHA last handed to `fly deploy`. */
+addColumn('projects', 'last_pushed_sha', 'TEXT');
+addColumn('projects', 'last_deployed_sha', 'TEXT');
+
 /** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
 db.exec(`
   UPDATE tasks SET number = (
@@ -159,6 +163,17 @@ const q = (sql) => {
   return stmt;
 };
 
+/** True when a GitHub push landed and has not yet been followed by a successful fly deploy. */
+function needsDeploy(row) {
+  if (!row) return false;
+  return Boolean(row.last_pushed_sha && row.last_pushed_sha !== row.last_deployed_sha);
+}
+
+function withDeployFlag(row) {
+  if (!row) return row;
+  return { ...row, needs_deploy: needsDeploy(row) };
+}
+
 const projects = {
   list() {
     return q(`
@@ -169,10 +184,10 @@ const projects = {
              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') AS completed_count
       FROM projects p
       ORDER BY p.name COLLATE NOCASE
-    `).all();
+    `).all().map(withDeployFlag);
   },
   get(id) {
-    return q('SELECT * FROM projects WHERE id = ?').get(id);
+    return withDeployFlag(q('SELECT * FROM projects WHERE id = ?').get(id));
   },
   create({ name, description = '', directory = '' }) {
     const { lastInsertRowid } = q(
@@ -194,6 +209,16 @@ const projects = {
   },
   remove(id) {
     return q('DELETE FROM projects WHERE id = ?').run(id).changes > 0;
+  },
+  recordPush(id, sha) {
+    if (!sha) return projects.get(id);
+    q(`UPDATE projects SET last_pushed_sha = ?, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+    return projects.get(id);
+  },
+  recordDeploy(id, sha) {
+    if (!sha) return projects.get(id);
+    q(`UPDATE projects SET last_deployed_sha = ?, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+    return projects.get(id);
   },
 };
 

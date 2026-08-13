@@ -112,6 +112,23 @@ async function main() {
   assert.match(bodies(t1.id), /merged into main/);
   ok('the thread says where the work landed');
 
+  // A merge that can reach GitHub is recorded so Deploy lights up until fly deploy follows it.
+  const remote = path.join(tmp, 'remote.git');
+  run(repo, 'clone', '--bare', '--quiet', repo, remote);
+  run(repo, 'remote', 'add', 'origin', remote);
+  run(repo, 'push', '-u', '--quiet', 'origin', 'main');
+  const tPush = tasks.create({
+    project_id: p1.id, title: 'Push me', description: 'FAKE_APPEND push-me.txt|from push',
+  });
+  agent.runTask(tPush.id);
+  await settle([tPush.id]);
+  assert.equal(tasks.get(tPush.id).status, 'completed');
+  assert.match(bodies(tPush.id), /Pushed main to GitHub/);
+  const afterPush = projects.get(p1.id);
+  assert.ok(afterPush.last_pushed_sha);
+  assert.equal(afterPush.needs_deploy, true);
+  ok('a merge that reaches GitHub enables deploy until fly deploy follows');
+
   const list1 = tasks.get(t1.id).checklist;
   assert.deepEqual(list1.map((i) => i.text), ['Read the code', 'Make the change', 'Check it works']);
   assert.deepEqual(list1.map((i) => i.done), [true, true, false]);

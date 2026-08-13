@@ -630,7 +630,33 @@ function mergeBack(taskId, task, iso, log, attempt) {
   git.removeWorktree(iso.root, iso.wtPath, iso.branch);
   isolation.delete(taskId);
   comments.create({ task_id: taskId, author: 'system', body: `Changes merged into ${iso.base}.` });
+  pushToGithub(task, iso, log);
   finish(taskId, 'completed', null, log);
+}
+
+/**
+ * After a merge into main, push it so GitHub (and then Fly) can see it. A failed push is noted
+ * on the task but does not undo the merge — the work is already on the local checkout.
+ */
+function pushToGithub(task, iso, log) {
+  if (!git.hasRemote(iso.root, 'origin')) {
+    log.write('\n[git] no origin remote; skipping GitHub push\n');
+    return;
+  }
+  const pushed = git.push(iso.root, 'origin', iso.base);
+  if (!pushed.ok) {
+    log.write(`\n[git] push failed: ${pushed.err}\n`);
+    comments.create({
+      task_id: task.id,
+      author: 'system',
+      body: `Could not push ${iso.base} to GitHub (${(pushed.err || 'git push failed').slice(0, 200)}).`,
+    });
+    return;
+  }
+  const sha = git.remoteSha(iso.root, 'origin', iso.base) || git.headSha(iso.root);
+  if (sha) projects.recordPush(task.project_id, sha);
+  log.write(`\n[git] pushed ${iso.base} to origin\n`);
+  comments.create({ task_id: task.id, author: 'system', body: `Pushed ${iso.base} to GitHub.` });
 }
 
 function resolveConflicts(taskId, task, iso, log, attempt) {

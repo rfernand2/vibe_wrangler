@@ -6,7 +6,13 @@ const path = require('node:path');
 
 /** Runs git with argv (never a shell string), so branch names and paths can't inject. */
 function git(cwd, args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  const r = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+    // A missing credential helper must fail the call, not sit waiting for a password.
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  });
   return {
     ok: !r.error && r.status === 0,
     code: r.status,
@@ -107,7 +113,28 @@ function shortLog(dir, base, branch) {
   return r.out ? r.out.split(/\r?\n/).filter(Boolean) : [];
 }
 
+function headSha(dir) {
+  const r = git(dir, ['rev-parse', 'HEAD']);
+  return r.ok && r.out ? r.out : null;
+}
+
+function hasRemote(dir, name = 'origin') {
+  return git(dir, ['remote', 'get-url', name]).ok;
+}
+
+/** The last SHA we know GitHub (or whichever remote) has for this branch — no network. */
+function remoteSha(dir, remote, branch) {
+  if (!branch) return null;
+  const r = git(dir, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`]);
+  return r.ok && r.out ? r.out : null;
+}
+
+function push(dir, remote, branch) {
+  return git(dir, ['push', '-u', '--quiet', remote, branch]);
+}
+
 module.exports = {
   git, isRepo, currentBranch, branchExists, pickTaskBranch, addWorktree, removeWorktree,
   isDirty, commitAll, mergeBaseIn, conflictedFiles, stillConflicted, abortMerge, fastForward, shortLog,
+  headSha, hasRemote, remoteSha, push,
 };

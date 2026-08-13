@@ -41,7 +41,7 @@
       <div class="project-head">
         <div class="project-title">
           <h2 id="projectName"></h2>
-          <button class="btn btn-sm btn-primary" id="deployProjectBtn">Deploy</button>
+          <button class="btn btn-sm btn-primary" id="deployProjectBtn" disabled title="Nothing new to deploy">Deploy</button>
           <button class="btn btn-sm" id="editProjectBtn">Edit</button>
           <button class="btn btn-sm btn-danger" id="deleteProjectBtn">Delete</button>
         </div>
@@ -276,6 +276,18 @@
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="performanceDialog">Close</button>
     </div>
+  </div>
+</dialog>
+
+<!-- Deploy progress dialog -->
+<dialog id="deployDialog" class="deploy-dialog">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <h3 id="deployDialogTitle">Deploying…</h3>
+      <button type="button" class="icon-btn" data-close="deployDialog" aria-label="Close">&times;</button>
+    </div>
+    <p class="muted" id="deployDialogStatus">Starting fly deploy…</p>
+    <pre id="deployLog"></pre>
   </div>
 </dialog>
 

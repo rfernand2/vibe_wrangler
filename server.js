@@ -250,17 +250,21 @@ async function api(req, res, url) {
         return json(res, 200, { started: agent.runFailed(id) });
       }
 
-      if (c === 'deploy' && method === 'POST') {
+      if (c === 'deploy') {
         const project = projects.get(id);
         if (!project) return json(res, 404, { error: 'Project not found' });
-        if (!project.directory) return json(res, 400, { error: 'Set a working directory before deploying' });
-        let stat;
-        try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
-        if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
-        try {
-          return json(res, 200, await deployment.deploy(project));
-        } catch (err) {
-          return json(res, 409, { error: err.message });
+        if (method === 'GET') return json(res, 200, deployment.snapshot(id));
+        if (method === 'POST') {
+          if (!project.directory) return json(res, 400, { error: 'Set a working directory before deploying' });
+          let stat;
+          try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
+          if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
+          if (!project.needs_deploy) return json(res, 409, { error: 'Nothing new to deploy — push to GitHub first' });
+          try {
+            return json(res, 202, deployment.start(project));
+          } catch (err) {
+            return json(res, 409, { error: err.message });
+          }
         }
       }
     }

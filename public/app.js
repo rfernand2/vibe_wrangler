@@ -367,6 +367,7 @@ async function loadTasks() {
     for (const id of projectOnly) $(id).hidden = false;
     $('projectName').textContent = p.name;
     $('projectMeta').textContent = [p.directory || '(no directory set)', p.description].filter(Boolean).join(' — ');
+    syncDeployButton(p);
     state.tasks = await api('GET', `/api/projects/${p.id}/tasks`);
   }
 
@@ -913,6 +914,7 @@ async function syncAll() {
       await loadProjects();
       await loadTasks();
       if (state.task) await refreshTask();
+      await refreshDeployProgress();
     } while (syncAgain);
   } catch { /* the stream will tell us again */ } finally {
     syncing = false;
@@ -986,16 +988,63 @@ $('deleteProjectBtn').onclick = run(async () => {
   toast('Project deleted');
 });
 
+function syncDeployButton(project) {
+  const button = $('deployProjectBtn');
+  const busy = deployWatching;
+  const ready = Boolean(project?.needs_deploy) && !busy;
+  button.disabled = !ready;
+  button.textContent = busy ? 'Deploying…' : 'Deploy';
+  button.title = busy
+    ? 'A deploy is already running'
+    : ready
+      ? 'A GitHub push is waiting to be deployed'
+      : 'Nothing new to deploy — wait for a push to GitHub first';
+}
+
+function showDeployProgress(status, output, error) {
+  const dlg = $('deployDialog');
+  if (!dlg.open) dlg.showModal();
+  const running = status === 'running' || status == null;
+  $('deployDialogTitle').textContent = running ? 'Deploying…' : (status === 'ok' ? 'Deployed' : 'Deploy failed');
+  $('deployDialogStatus').textContent = running
+    ? 'fly deploy is running…'
+    : (status === 'ok' ? 'Deployment completed.' : (error || 'fly deploy failed'));
+  const log = $('deployLog');
+  log.textContent = output || (running ? 'Starting fly deploy…\n' : '');
+  log.scrollTop = log.scrollHeight;
+}
+
+let deployWatching = false;
+
+async function refreshDeployProgress() {
+  if (!state.projectId) return;
+  const snap = await api('GET', `/api/projects/${state.projectId}/deploy`);
+  if (snap.running) {
+    deployWatching = true;
+    showDeployProgress('running', snap.output);
+  } else if (deployWatching) {
+    deployWatching = false;
+    const status = snap.status || (snap.error ? 'failed' : 'ok');
+    showDeployProgress(status, snap.output, snap.error);
+    toast(status === 'ok' ? 'Deployment completed' : (snap.error || 'Deploy failed'), status !== 'ok');
+  }
+  const p = state.projects.find((x) => x.id === state.projectId);
+  if (p) syncDeployButton(p);
+}
+
 $('deployProjectBtn').onclick = run(async () => {
   const button = $('deployProjectBtn');
   button.disabled = true;
   button.textContent = 'Deploying…';
+  deployWatching = true;
+  showDeployProgress('running', '');
   try {
-    await api('POST', `/api/projects/${state.projectId}/deploy`);
-    toast('Deployment completed');
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Deploy';
+    const started = await api('POST', `/api/projects/${state.projectId}/deploy`);
+    showDeployProgress('running', started.output);
+  } catch (err) {
+    deployWatching = false;
+    showDeployProgress('failed', '', err.message);
+    throw err;
   }
 });
 

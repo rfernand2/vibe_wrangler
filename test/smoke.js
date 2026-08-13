@@ -103,20 +103,42 @@ async function main() {
   ok('updates a project');
 
   const deployment = require('../deploy');
-  let deployed;
-  deployment.deploy = async (project) => {
-    deployed = project;
-    return { ok: true };
+  assert.equal(deployment.looksSuccessful('Visit your newly deployed app at https://x.fly.dev'), true);
+  assert.equal(deployment.looksSuccessful('Error: failed to fetch an image'), false);
+  ok('a fly warning after a successful release is not treated as a failed deploy');
+
+  let started;
+  deployment.start = (project) => {
+    started = project;
+    return { running: true, output: '==> Verifying app config\n', status: 'running', error: null };
   };
+  deployment.snapshot = () => ({ running: false, output: '', status: null, error: null });
+
+  assert.equal((await call('POST', `/api/projects/${proj.id}/deploy`)).status, 409,
+    'nothing has been pushed yet');
+  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
+
+  const { projects: projectStore } = require('../db');
+  projectStore.recordPush(proj.id, 'abc123');
+  const waiting = (await call('GET', `/api/projects/${proj.id}`)).body;
+  assert.equal(waiting.needs_deploy, true);
+  ok('a GitHub push that has not been deployed lights the deploy flag');
+
   const deploymentResult = await call('POST', `/api/projects/${proj.id}/deploy`);
-  assert.equal(deploymentResult.status, 200);
-  assert.equal(deployed.id, proj.id);
-  assert.equal(deployed.directory, workdir);
+  assert.equal(deploymentResult.status, 202);
+  assert.equal(started.id, proj.id);
+  assert.equal(started.directory, workdir);
+  assert.equal(deploymentResult.body.running, true);
+  assert.match(deploymentResult.body.output, /Verifying app config/);
   assert.equal((await call('POST', '/api/projects/999999/deploy')).status, 404);
   const noDirectory = (await call('POST', '/api/projects', { name: 'No directory' })).body;
   assert.equal((await call('POST', `/api/projects/${noDirectory.id}/deploy`)).status, 400);
   await call('DELETE', `/api/projects/${noDirectory.id}`);
   ok('deploys from the selected project directory');
+
+  projectStore.recordDeploy(proj.id, 'abc123');
+  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
+  ok('a successful fly deploy clears the deploy flag');
 
   // --- tasks ---
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`, { title: '' })).status, 400);
