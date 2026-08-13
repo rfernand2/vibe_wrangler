@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert');
 const { taskAgent, agentName } = require('../public/task-agent');
+const { handleCommentKeydown } = require('../public/comment-keys');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -52,6 +53,26 @@ async function main() {
   assert.equal(index.status, 200);
   assert.match(index.body, /Vibe Wrangler/);
   ok('serves the front end');
+
+  let submitted = 0;
+  const form = { requestSubmit() { submitted++; } };
+  const key = (overrides = {}) => ({
+    key: 'Enter', shiftKey: false, isComposing: false, prevented: false,
+    preventDefault() { this.prevented = true; },
+    ...overrides,
+  });
+  const enter = key();
+  assert.equal(handleCommentKeydown(enter, form), true);
+  assert.equal(enter.prevented, true, 'Return suppresses the textarea newline');
+  assert.equal(submitted, 1, 'Return submits the comment form');
+  const shiftEnter = key({ shiftKey: true });
+  assert.equal(handleCommentKeydown(shiftEnter, form), false);
+  assert.equal(shiftEnter.prevented, false, 'Shift-Return keeps the browser newline behavior');
+  assert.equal(submitted, 1, 'Shift-Return does not submit the comment form');
+  const composingEnter = key({ isComposing: true });
+  assert.equal(handleCommentKeydown(composingEnter, form), false);
+  assert.equal(submitted, 1, 'confirming composed text does not submit the comment form');
+  ok('uses Return to send comments and Shift-Return for new lines');
 
   const DEFAULTS = { harness: 'codex', provider: 'native', model: 'gpt-5.6-sol' };
   const ran = { last_harness: 'claude', last_provider: 'native', last_model: 'claude-opus-5' };
