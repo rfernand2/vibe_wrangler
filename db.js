@@ -125,6 +125,17 @@ addColumn('tasks', 'graded_model', 'TEXT');
 /** The SHA last pushed to GitHub, and the SHA last handed to `fly deploy`. */
 addColumn('projects', 'last_pushed_sha', 'TEXT');
 addColumn('projects', 'last_deployed_sha', 'TEXT');
+const addedPushCount = addColumn('projects', 'push_count', 'INTEGER NOT NULL DEFAULT 0');
+const addedDeployedPushCount = addColumn('projects', 'deployed_push_count', 'INTEGER NOT NULL DEFAULT 0');
+if (addedPushCount) {
+  db.exec(`UPDATE projects SET push_count = 1 WHERE last_pushed_sha IS NOT NULL`);
+}
+if (addedDeployedPushCount) {
+  db.exec(`
+    UPDATE projects SET deployed_push_count = 1
+    WHERE last_pushed_sha IS NOT NULL AND last_pushed_sha = last_deployed_sha
+  `);
+}
 
 /** Tasks that predate the numbering are numbered by age, so a project reads like its own history. */
 db.exec(`
@@ -165,14 +176,19 @@ const q = (sql) => {
 };
 
 /** True when a GitHub push landed and has not yet been followed by a successful fly deploy. */
+function pendingPushes(row) {
+  if (!row) return 0;
+  return Math.max(0, Number(row.push_count || 0) - Number(row.deployed_push_count || 0));
+}
+
 function needsDeploy(row) {
   if (!row) return false;
-  return Boolean(row.last_pushed_sha && row.last_pushed_sha !== row.last_deployed_sha);
+  return pendingPushes(row) > 0;
 }
 
 function withDeployFlag(row) {
   if (!row) return row;
-  return { ...row, needs_deploy: needsDeploy(row) };
+  return { ...row, pending_pushes: pendingPushes(row), needs_deploy: needsDeploy(row) };
 }
 
 const projects = {
@@ -213,12 +229,16 @@ const projects = {
   },
   recordPush(id, sha) {
     if (!sha) return projects.get(id);
-    q(`UPDATE projects SET last_pushed_sha = ?, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+    q(`UPDATE projects SET last_pushed_sha = ?, push_count = push_count + 1,
+       updated_at = datetime('now') WHERE id = ?`).run(sha, id);
     return projects.get(id);
   },
-  recordDeploy(id, sha) {
+  recordDeploy(id, sha, pushCount) {
     if (!sha) return projects.get(id);
-    q(`UPDATE projects SET last_deployed_sha = ?, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+    const deployedThrough = pushCount ?? projects.get(id)?.push_count ?? 0;
+    q(`UPDATE projects SET last_deployed_sha = ?,
+       deployed_push_count = MAX(deployed_push_count, ?), updated_at = datetime('now') WHERE id = ?`)
+      .run(sha, deployedThrough, id);
     return projects.get(id);
   },
   markDeployed(id) {

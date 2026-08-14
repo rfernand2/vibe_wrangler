@@ -53,7 +53,9 @@ async function main() {
   assert.equal(index.status, 200);
   assert.match(index.body, /Vibe Wrangler/);
   assert.match(index.body, /Run local/);
-  assert.match(index.body, /Run prod/);
+  assert.match(index.body, /Open Local/);
+  assert.match(index.body, /Open Prod/);
+  assert.match(index.body, /Deploy: 0 pushes/);
   assert.match(index.body, /id="deployProjectBtn"/);
   assert.doesNotMatch(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
   ok('serves the front end');
@@ -151,6 +153,9 @@ async function main() {
   projectStore.recordPush(proj.id, 'abc123');
   const waiting = (await call('GET', `/api/projects/${proj.id}`)).body;
   assert.equal(waiting.needs_deploy, true);
+  assert.equal(waiting.pending_pushes, 1);
+  projectStore.recordPush(proj.id, 'def456');
+  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.pending_pushes, 2);
   ok('a GitHub push that has not been deployed lights the deploy flag');
 
   const deploymentResult = await call('POST', `/api/projects/${proj.id}/deploy`);
@@ -165,8 +170,14 @@ async function main() {
   await call('DELETE', `/api/projects/${noDirectory.id}`);
   ok('deploys from the selected project directory');
 
-  projectStore.recordDeploy(proj.id, 'abc123');
-  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
+  projectStore.recordDeploy(proj.id, 'abc123', 1);
+  const pushedDuringDeploy = (await call('GET', `/api/projects/${proj.id}`)).body;
+  assert.equal(pushedDuringDeploy.needs_deploy, true);
+  assert.equal(pushedDuringDeploy.pending_pushes, 1);
+  projectStore.recordDeploy(proj.id, 'def456');
+  const deployed = (await call('GET', `/api/projects/${proj.id}`)).body;
+  assert.equal(deployed.needs_deploy, false);
+  assert.equal(deployed.pending_pushes, 0);
   ok('a successful fly deploy clears the deploy flag');
 
   const deployStatusProject = (await call('POST', '/api/projects', {

@@ -1025,6 +1025,7 @@ $('deleteProjectBtn').onclick = run(async () => {
 
 function syncProjectButtons(project) {
   syncRunLocalButton(project);
+  syncOpenLocalButton(project);
   syncRunProdButton(project);
   syncDeployButton(project);
 }
@@ -1041,6 +1042,13 @@ function syncRunLocalButton(project) {
       : 'Start the local instance using the project run script';
 }
 
+function syncOpenLocalButton(project) {
+  const button = $('openLocalBtn');
+  const url = project?.local_url;
+  button.disabled = !url;
+  button.title = url ? `Open ${url}` : 'No local port found in the project run script';
+}
+
 function syncRunProdButton(project) {
   const button = $('runProdBtn');
   const url = project?.prod_url;
@@ -1051,8 +1059,9 @@ function syncRunProdButton(project) {
 function syncDeployButton(project) {
   const button = $('deployProjectBtn');
   const busy = deployWatching;
+  const pushes = Number(project?.pending_pushes) || 0;
   button.disabled = busy;
-  button.textContent = busy ? 'Deploying…' : 'Deploy';
+  button.textContent = busy ? 'Deploying…' : `Deploy: ${pushes} pushes`;
   button.title = busy
     ? 'A deploy is already running'
     : project?.needs_deploy || project?.deployment_needed
@@ -1110,6 +1119,12 @@ $('runProdBtn').onclick = () => {
   const p = state.projects.find((x) => x.id === state.projectId);
   if (!p?.prod_url) return;
   window.open(p.prod_url, '_blank', 'noopener');
+};
+
+$('openLocalBtn').onclick = () => {
+  const p = state.projects.find((x) => x.id === state.projectId);
+  if (!p?.local_url) return;
+  window.open(p.local_url, '_blank', 'noopener');
 };
 
 $('deployProjectBtn').onclick = run(async () => {

@@ -166,7 +166,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 
 .project-head { display: grid; gap: 4px; }
 .project-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.project-head h2 { font-size: 20px; }
+.project-head h2 { font-size: 20px; margin-right: 10px; }
+#deployProjectBtn { margin-right: 10px; }
 .project-head .muted { font-size: 12px; margin: 0; }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
