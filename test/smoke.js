@@ -59,8 +59,11 @@ async function main() {
   assert.match(index.body, /Open Local/);
   assert.match(index.body, /Open Prod/);
   assert.match(index.body, /Deploy: 0 pushes/);
+  assert.match(index.body, /id="deployToolbar"/);
+  assert.match(index.body, /Deployment/);
   assert.match(index.body, /id="deployProjectBtn"/);
   assert.match(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
+  assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="deployProjectBtn"/);
   ok('serves the front end');
 
   let submitted = 0;

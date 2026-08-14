@@ -381,7 +381,7 @@ function renderFilters() {
 
 async function loadTasks() {
   const projectOnly = [
-    'runLocalBtn', 'runProdBtn', 'deployProjectBtn',
+    'deployToolbar',
     'editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn',
   ];
 
