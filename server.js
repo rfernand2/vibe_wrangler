@@ -11,6 +11,7 @@ const events = require('./events');
 const attachments = require('./attachments');
 const harnesses = require('./harnesses');
 const deployment = require('./deploy');
+const local = require('./local');
 const { version } = require('./package.json');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -184,14 +185,14 @@ async function api(req, res, url) {
   // /api/projects...
   if (a === 'projects') {
     if (!b) {
-      if (method === 'GET') return json(res, 200, projects.list());
+      if (method === 'GET') return json(res, 200, local.decorateAll(projects.list()));
       if (method === 'POST') {
         if (!body.name?.trim()) return json(res, 400, { error: 'Project name is required' });
-        return json(res, 201, projects.create({
+        return json(res, 201, local.decorate(projects.create({
           name: body.name.trim(),
           description: body.description || '',
           directory: body.directory || '',
-        }));
+        })));
       }
     } else {
       const id = Number(b);
@@ -200,11 +201,11 @@ async function api(req, res, url) {
       if (!c) {
         if (method === 'GET') {
           const p = projects.get(id);
-          return p ? json(res, 200, p) : json(res, 404, { error: 'Project not found' });
+          return p ? json(res, 200, local.decorate(p)) : json(res, 404, { error: 'Project not found' });
         }
         if (method === 'PUT') {
           const p = projects.update(id, body);
-          return p ? json(res, 200, p) : json(res, 404, { error: 'Project not found' });
+          return p ? json(res, 200, local.decorate(p)) : json(res, 404, { error: 'Project not found' });
         }
         if (method === 'DELETE') {
           return projects.remove(id) ? json(res, 200, { ok: true }) : json(res, 404, { error: 'Project not found' });
@@ -259,9 +260,6 @@ async function api(req, res, url) {
           let stat;
           try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
           if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
-          if (!project.needs_deploy && !project.deployment_needed) {
-            return json(res, 409, { error: 'Nothing new to deploy — push to GitHub first' });
-          }
           try {
             // A GitHub push waiting on fly uses the live job (202 + poll). Completed work
             // that still needs shipping waits for fly and then clears that flag.
@@ -274,6 +272,26 @@ async function api(req, res, url) {
           } catch (err) {
             return json(res, 409, { error: err.message });
           }
+        }
+      }
+
+      if (c === 'run-local' && method === 'POST') {
+        const project = projects.get(id);
+        if (!project) return json(res, 404, { error: 'Project not found' });
+        try {
+          return json(res, 200, await local.start(project));
+        } catch (err) {
+          return json(res, 400, { error: err.message });
+        }
+      }
+
+      if (c === 'stop-local' && method === 'POST') {
+        const project = projects.get(id);
+        if (!project) return json(res, 404, { error: 'Project not found' });
+        try {
+          return json(res, 200, await local.stop(project));
+        } catch (err) {
+          return json(res, 400, { error: err.message });
         }
       }
     }

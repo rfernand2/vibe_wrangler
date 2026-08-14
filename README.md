@@ -405,6 +405,7 @@ agent.js           Spawns the agent CLI and turns its output into comments and c
 harnesses.js       Harness catalogue: how each agent CLI is launched, set up, and how its events are read
 git.js             Worktree / branch / merge plumbing for concurrent tasks
 proc.js            Liveness, identity and tree-kill for agent processes
+local.js           Starts and stops a project's local instance, and finds its fly URL
 events.js          Server-sent change notifications that keep open tabs current
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database
@@ -456,6 +457,9 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `POST` | `/api/tasks/:id/stop` | Stop a running agent |
 | `POST` | `/api/projects/:id/run-ready` | Run every `ready` task in the project |
 | `POST` | `/api/projects/:id/run-failed` | Retry every `failed` task in the project |
+| `POST` | `/api/projects/:id/run-local` | Start the project's `run.bat` / `run.sh` |
+| `POST` | `/api/projects/:id/stop-local` | Stop whatever is listening on the project's local port |
+| `POST` | `/api/projects/:id/deploy` | Run `fly deploy` in the project directory |
 | `GET` | `/api/agents` | Every agent process the app knows is running |
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |

@@ -380,7 +380,10 @@ function renderFilters() {
 }
 
 async function loadTasks() {
-  const projectOnly = ['deployProjectBtn', 'editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn'];
+  const projectOnly = [
+    'runLocalBtn', 'runProdBtn', 'deployProjectBtn',
+    'editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn',
+  ];
 
   if (state.view === 'all') {
     $('emptyState').hidden = true;
@@ -399,7 +402,7 @@ async function loadTasks() {
     for (const id of projectOnly) $(id).hidden = false;
     $('projectName').textContent = p.name;
     $('projectMeta').textContent = [p.directory || '(no directory set)', p.description].filter(Boolean).join(' — ');
-    syncDeployButton(p);
+    syncProjectButtons(p);
     state.tasks = await api('GET', `/api/projects/${p.id}/tasks`);
   }
 
@@ -1020,17 +1023,41 @@ $('deleteProjectBtn').onclick = run(async () => {
   toast('Project deleted');
 });
 
+function syncProjectButtons(project) {
+  syncRunLocalButton(project);
+  syncRunProdButton(project);
+  syncDeployButton(project);
+}
+
+function syncRunLocalButton(project) {
+  const button = $('runLocalBtn');
+  const running = Boolean(project?.local_running);
+  button.disabled = false;
+  button.textContent = running ? 'Stop local' : 'Run local';
+  button.title = running
+    ? `Stop the local instance on port ${project.local_port}`
+    : project?.local_port
+      ? `Start the local instance on port ${project.local_port}`
+      : 'Start the local instance using the project run script';
+}
+
+function syncRunProdButton(project) {
+  const button = $('runProdBtn');
+  const url = project?.prod_url;
+  button.disabled = !url;
+  button.title = url ? `Open ${url}` : 'No fly.toml app name found in the project directory';
+}
+
 function syncDeployButton(project) {
   const button = $('deployProjectBtn');
   const busy = deployWatching;
-  const ready = Boolean(project?.needs_deploy) && !busy;
-  button.disabled = !ready;
+  button.disabled = busy;
   button.textContent = busy ? 'Deploying…' : 'Deploy';
   button.title = busy
     ? 'A deploy is already running'
-    : ready
-      ? 'A GitHub push is waiting to be deployed'
-      : 'Nothing new to deploy — wait for a push to GitHub first';
+    : project?.needs_deploy || project?.deployment_needed
+      ? 'A change is waiting to be deployed'
+      : 'Deploy this project';
 }
 
 function showDeployProgress(status, output, error) {
@@ -1061,8 +1088,29 @@ async function refreshDeployProgress() {
     toast(status === 'ok' ? 'Deployment completed' : (snap.error || 'Deploy failed'), status !== 'ok');
   }
   const p = state.projects.find((x) => x.id === state.projectId);
-  if (p) syncDeployButton(p);
+  if (p) syncProjectButtons(p);
 }
+
+$('runLocalBtn').onclick = run(async () => {
+  const p = state.projects.find((x) => x.id === state.projectId);
+  if (!p) return;
+  const wasRunning = Boolean(p.local_running);
+  const path = wasRunning
+    ? `/api/projects/${p.id}/stop-local`
+    : `/api/projects/${p.id}/run-local`;
+  const snap = await api('POST', path);
+  Object.assign(p, snap);
+  syncRunLocalButton(p);
+  toast(snap.local_running
+    ? `Local instance running on port ${snap.local_port}`
+    : (wasRunning ? 'Local instance stopped' : 'Started the local instance'));
+});
+
+$('runProdBtn').onclick = () => {
+  const p = state.projects.find((x) => x.id === state.projectId);
+  if (!p?.prod_url) return;
+  window.open(p.prod_url, '_blank', 'noopener');
+};
 
 $('deployProjectBtn').onclick = run(async () => {
   const button = $('deployProjectBtn');

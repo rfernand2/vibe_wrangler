@@ -48,8 +48,10 @@ function finish(job, { ok, error }) {
   job.done = true;
   job.status = ok ? 'ok' : 'failed';
   job.error = ok ? null : (error || 'fly deploy failed');
-  if (ok && job.sha) projects.recordDeploy(job.projectId, job.sha);
-  else events.changed();
+  if (ok) {
+    if (job.sha) projects.recordDeploy(job.projectId, job.sha);
+    projects.markDeployed(job.projectId);
+  } else events.changed();
   for (const waiter of job.waiters) waiter(ok, job.error);
   job.waiters.length = 0;
   last.set(job.projectId, job);

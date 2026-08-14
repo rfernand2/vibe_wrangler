@@ -52,6 +52,10 @@ async function main() {
   const index = await call('GET', '/');
   assert.equal(index.status, 200);
   assert.match(index.body, /Vibe Wrangler/);
+  assert.match(index.body, /Run local/);
+  assert.match(index.body, /Run prod/);
+  assert.match(index.body, /id="deployProjectBtn"/);
+  assert.doesNotMatch(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
   ok('serves the front end');
 
   let submitted = 0;
@@ -139,8 +143,8 @@ async function main() {
     return { ok: true };
   };
 
-  assert.equal((await call('POST', `/api/projects/${proj.id}/deploy`)).status, 409,
-    'nothing has been pushed yet');
+  const idleDeploy = await call('POST', `/api/projects/${proj.id}/deploy`);
+  assert.equal(idleDeploy.status, 200, 'deploy is available even when nothing has been pushed');
   assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
 
   const { projects: projectStore } = require('../db');
@@ -184,6 +188,50 @@ async function main() {
   assert.equal(deployStatus.deployment_needed, 0);
   await call('DELETE', `/api/projects/${deployStatusProject.id}`);
   ok('tracks whether completed work still needs deployment');
+
+  const local = require('../local');
+  const localDir = path.join(tmp, 'local-app');
+  fs.mkdirSync(localDir);
+  fs.writeFileSync(path.join(localDir, 'run.bat'), '@echo off\r\nset PORT=38113\r\nnode local-server.js\r\n');
+  fs.writeFileSync(path.join(localDir, 'run.sh'), '#!/bin/sh\nPORT=38113\nexport PORT\nexec node local-server.js\n');
+  fs.writeFileSync(path.join(localDir, 'local-server.js'),
+    "require('http').createServer((q,s)=>s.end('ok')).listen(Number(process.env.PORT||38113));\n");
+  fs.writeFileSync(path.join(localDir, 'fly.toml'), "app = 'demo-app'\nprimary_region = 'sjc'\n");
+  assert.equal(local.readPort(localDir), 38113);
+  assert.equal(local.readProdUrl(localDir), 'https://demo-app.fly.dev');
+  assert.equal(local.readPort(workdir), null);
+  assert.equal(local.readProdUrl(workdir), null);
+  ok('reads the local port and fly URL from the project directory');
+
+  const localProj = (await call('POST', '/api/projects', {
+    name: 'Local app', directory: localDir,
+  })).body;
+  assert.equal(localProj.local_port, 38113);
+  assert.equal(localProj.local_running, false);
+  assert.equal(localProj.local_url, 'http://localhost:38113');
+  assert.equal(localProj.prod_url, 'https://demo-app.fly.dev');
+  assert.equal((await call('POST', '/api/projects/999999/run-local')).status, 404);
+  assert.equal((await call('POST', `/api/projects/${noDirectory?.id || 0}/run-local`)).status, 404);
+  const noScript = (await call('POST', '/api/projects', {
+    name: 'No script', directory: workdir,
+  })).body;
+  assert.equal((await call('POST', `/api/projects/${noScript.id}/run-local`)).status, 400);
+  await call('DELETE', `/api/projects/${noScript.id}`);
+
+  const startedLocal = await call('POST', `/api/projects/${localProj.id}/run-local`);
+  assert.equal(startedLocal.status, 200);
+  assert.equal(startedLocal.body.local_running, true);
+  assert.equal(startedLocal.body.local_port, 38113);
+  const afterStart = (await call('GET', `/api/projects/${localProj.id}`)).body;
+  assert.equal(afterStart.local_running, true);
+  const stoppedLocal = await call('POST', `/api/projects/${localProj.id}/stop-local`);
+  assert.equal(stoppedLocal.status, 200);
+  assert.equal(stoppedLocal.body.local_running, false);
+  await call('DELETE', `/api/projects/${localProj.id}`);
+  ok('starts and stops a local project instance from its run script');
+
+  const selfPort = (await call('GET', `/api/projects/${proj.id}`)).body;
+  assert.equal(selfPort.local_running, false, 'this app\'s own port is not treated as a project instance');
 
   // --- tasks ---
   assert.equal((await call('POST', `/api/projects/${proj.id}/tasks`, { title: '' })).status, 400);
