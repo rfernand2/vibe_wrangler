@@ -112,7 +112,12 @@ async function main() {
   assert.match(bodies(t1.id), /merged into main/);
   ok('the thread says where the work landed');
 
-  // A merge that can reach GitHub is recorded so Deploy lights up until fly deploy follows it.
+  const afterMerges = projects.get(p1.id);
+  assert.equal(afterMerges.needs_deploy, true);
+  assert.equal(afterMerges.pending_pushes, 2);
+  ok('a merge into main lights Deploy and counts the change');
+
+  // A later GitHub push remembers the remote SHA without counting the same merge twice.
   const remote = path.join(tmp, 'remote.git');
   run(repo, 'clone', '--bare', '--quiet', repo, remote);
   run(repo, 'remote', 'add', 'origin', remote);
@@ -127,7 +132,8 @@ async function main() {
   const afterPush = projects.get(p1.id);
   assert.ok(afterPush.last_pushed_sha);
   assert.equal(afterPush.needs_deploy, true);
-  ok('a merge that reaches GitHub enables deploy until fly deploy follows');
+  assert.equal(afterPush.pending_pushes, 3);
+  ok('a merge that reaches GitHub still counts once and keeps Deploy lit');
 
   const list1 = tasks.get(t1.id).checklist;
   assert.deepEqual(list1.map((i) => i.text), ['Read the code', 'Make the change', 'Check it works']);

@@ -37,9 +37,24 @@ function readPort(directory) {
     || parsePort(readIfExists(path.join(directory, 'run.sh')));
 }
 
+function flyTomlPath(directory) {
+  return directory ? path.join(directory, 'fly.toml') : null;
+}
+
+/** True when the project folder has a fly.toml, so Deploy is a real action rather than a guess. */
+function hasFlyConfig(directory) {
+  const file = flyTomlPath(directory);
+  if (!file) return false;
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function readProdUrl(directory) {
   if (!directory) return null;
-  const toml = readIfExists(path.join(directory, 'fly.toml'));
+  const toml = readIfExists(flyTomlPath(directory));
   if (!toml) return null;
   const m = /^\s*app\s*=\s*['"]([^'"]+)['"]/m.exec(toml);
   return m ? `https://${m[1]}.fly.dev` : null;
@@ -108,12 +123,16 @@ function status(project, ports = listeningPorts()) {
     local_running: running,
     local_url: port ? `http://localhost:${port}` : null,
     prod_url: readProdUrl(project?.directory),
+    can_deploy: hasFlyConfig(project?.directory),
   };
 }
 
 function decorate(project, ports) {
   if (!project) return project;
-  return { ...project, ...status(project, ports) };
+  const extra = status(project, ports);
+  // Without a fly.toml there is nothing to ship, so the board must not claim a deploy is due.
+  if (!extra.can_deploy) return { ...project, ...extra, needs_deploy: false };
+  return { ...project, ...extra };
 }
 
 function decorateAll(list) {
@@ -187,6 +206,7 @@ async function stop(project) {
 module.exports = {
   readPort,
   readProdUrl,
+  hasFlyConfig,
   portInUse,
   listeningPorts,
   status,

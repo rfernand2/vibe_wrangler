@@ -630,6 +630,8 @@ function mergeBack(taskId, task, iso, log, attempt) {
   git.removeWorktree(iso.root, iso.wtPath, iso.branch);
   isolation.delete(taskId);
   comments.create({ task_id: taskId, author: 'system', body: `Changes merged into ${iso.base}.` });
+  const sha = git.headSha(iso.root);
+  if (sha) projects.recordMerge(task.project_id, sha);
   pushToGithub(task, iso, log);
   finish(taskId, 'completed', null, log);
 }
@@ -654,7 +656,8 @@ function pushToGithub(task, iso, log) {
     return;
   }
   const sha = git.remoteSha(iso.root, 'origin', iso.base) || git.headSha(iso.root);
-  if (sha) projects.recordPush(task.project_id, sha);
+  // The merge already counted this change; only remember which SHA GitHub now has.
+  if (sha) projects.recordRemoteSha(task.project_id, sha);
   log.write(`\n[git] pushed ${iso.base} to origin\n`);
   comments.create({ task_id: task.id, author: 'system', body: `Pushed ${iso.base} to GitHub.` });
 }

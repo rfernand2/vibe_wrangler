@@ -175,7 +175,7 @@ const q = (sql) => {
   return stmt;
 };
 
-/** True when a GitHub push landed and has not yet been followed by a successful fly deploy. */
+/** True when a merge into main has not yet been followed by a successful fly deploy. */
 function pendingPushes(row) {
   if (!row) return 0;
   return Math.max(0, Number(row.push_count || 0) - Number(row.deployed_push_count || 0));
@@ -227,18 +227,39 @@ const projects = {
   remove(id) {
     return q('DELETE FROM projects WHERE id = ?').run(id).changes > 0;
   },
+  /**
+   * A merge into the project's main is what lights Deploy. The SHA is the commit that landed;
+   * last_pushed_sha stays for the GitHub push that may follow.
+   */
+  recordMerge(id, sha) {
+    if (!sha) return projects.get(id);
+    q(`UPDATE projects SET push_count = push_count + 1, deployment_needed = 1,
+       updated_at = datetime('now') WHERE id = ?`).run(id);
+    return projects.get(id);
+  },
   recordPush(id, sha) {
     if (!sha) return projects.get(id);
     q(`UPDATE projects SET last_pushed_sha = ?, push_count = push_count + 1,
-       updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+       deployment_needed = 1, updated_at = datetime('now') WHERE id = ?`).run(sha, id);
+    return projects.get(id);
+  },
+  recordRemoteSha(id, sha) {
+    if (!sha) return projects.get(id);
+    q(`UPDATE projects SET last_pushed_sha = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(sha, id);
     return projects.get(id);
   },
   recordDeploy(id, sha, pushCount) {
-    if (!sha) return projects.get(id);
     const deployedThrough = pushCount ?? projects.get(id)?.push_count ?? 0;
-    q(`UPDATE projects SET last_deployed_sha = ?,
-       deployed_push_count = MAX(deployed_push_count, ?), updated_at = datetime('now') WHERE id = ?`)
-      .run(sha, deployedThrough, id);
+    if (sha) {
+      q(`UPDATE projects SET last_deployed_sha = ?,
+         deployed_push_count = MAX(deployed_push_count, ?), updated_at = datetime('now') WHERE id = ?`)
+        .run(sha, deployedThrough, id);
+    } else {
+      q(`UPDATE projects SET deployed_push_count = MAX(deployed_push_count, ?),
+         updated_at = datetime('now') WHERE id = ?`)
+        .run(deployedThrough, id);
+    }
     return projects.get(id);
   },
   markDeployed(id) {
@@ -369,9 +390,6 @@ const tasks = {
     `).run(project_id, number, title, description, status, harness, provider, model);
     const id = Number(lastInsertRowid);
     tasks.setTags(id, tags);
-    if (status === 'completed') {
-      q('UPDATE projects SET deployment_needed = 1 WHERE id = ?').run(project_id);
-    }
     return tasks.get(id);
   },
   update(id, { title, description, status, tags, harness, provider, model }) {
@@ -440,10 +458,6 @@ const tasks = {
     }
     args.push(id);
     q(`UPDATE tasks SET status = ?${clock}, updated_at = datetime('now') WHERE id = ?`).run(...args);
-    if (status === 'completed' && cur.status !== 'completed') {
-      q(`UPDATE projects SET deployment_needed = 1
-         WHERE id = (SELECT project_id FROM tasks WHERE id = ?)`).run(id);
-    }
     return tasks.get(id);
   },
   setLogFile(id, logFile) {

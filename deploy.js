@@ -49,7 +49,7 @@ function finish(job, { ok, error }) {
   job.status = ok ? 'ok' : 'failed';
   job.error = ok ? null : (error || 'fly deploy failed');
   if (ok) {
-    if (job.sha) projects.recordDeploy(job.projectId, job.sha, job.pushCount);
+    projects.recordDeploy(job.projectId, job.sha, job.pushCount);
     projects.markDeployed(job.projectId);
   } else events.changed();
   for (const waiter of job.waiters) waiter(ok, job.error);

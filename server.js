@@ -260,6 +260,9 @@ async function api(req, res, url) {
           let stat;
           try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
           if (!stat?.isDirectory()) return json(res, 400, { error: 'The project working directory does not exist' });
+          if (!local.hasFlyConfig(project.directory)) {
+            return json(res, 400, { error: 'This project has no fly.toml to deploy' });
+          }
           try {
             // A GitHub push waiting on fly uses the live job (202 + poll). Completed work
             // that still needs shipping waits for fly and then clears that flag.

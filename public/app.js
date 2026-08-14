@@ -249,7 +249,7 @@ async function loadProjects() {
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
-    if (p.deployment_needed) {
+    if (shouldShowDeployBadge(p)) {
       const deployNeeded = document.createElement('span');
       deployNeeded.className = 'deploy-needed';
       deployNeeded.textContent = 'Deploy';
@@ -1058,19 +1058,18 @@ function syncRunProdButton(project) {
 
 function syncDeployButton(project) {
   const button = $('deployProjectBtn');
-  const busy = deployWatching;
-  const pushes = Number(project?.pending_pushes) || 0;
-  button.disabled = busy;
-  button.textContent = busy ? 'Deploying…' : `Deploy: ${pushes} pushes`;
-  button.title = busy
-    ? 'A deploy is already running'
-    : project?.needs_deploy || project?.deployment_needed
-      ? 'A change is waiting to be deployed'
-      : 'Deploy this project';
+  const next = deployButtonState(project, { busy: deployWatching });
+  button.disabled = next.disabled;
+  button.textContent = next.text;
+  button.title = next.title;
 }
 
 function showDeployProgress(status, output, error) {
   const dlg = $('deployDialog');
+  if (shouldCloseDeployDialog(status)) {
+    if (dlg.open) dlg.close();
+    return;
+  }
   if (!dlg.open) dlg.showModal();
   const running = status === 'running' || status == null;
   $('deployDialogTitle').textContent = running ? 'Deploying…' : (status === 'ok' ? 'Deployed' : 'Deploy failed');
@@ -1128,6 +1127,8 @@ $('openLocalBtn').onclick = () => {
 };
 
 $('deployProjectBtn').onclick = run(async () => {
+  const project = state.projects.find((x) => x.id === state.projectId);
+  if (!canDeploy(project)) return;
   const button = $('deployProjectBtn');
   button.disabled = true;
   button.textContent = 'Deploying…';
@@ -1135,7 +1136,14 @@ $('deployProjectBtn').onclick = run(async () => {
   showDeployProgress('running', '');
   try {
     const started = await api('POST', `/api/projects/${state.projectId}/deploy`);
-    showDeployProgress('running', started.output);
+    if (started.running) {
+      showDeployProgress('running', started.output);
+    } else {
+      deployWatching = false;
+      const status = started.status || (started.ok ? 'ok' : 'failed');
+      showDeployProgress(status, started.output, started.error);
+      toast(status === 'ok' ? 'Deployment completed' : (started.error || 'Deploy failed'), status !== 'ok');
+    }
   } catch (err) {
     deployWatching = false;
     showDeployProgress('failed', '', err.message);

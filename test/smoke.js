@@ -8,6 +8,9 @@ const path = require('node:path');
 const assert = require('node:assert');
 const { taskAgent, agentName } = require('../public/task-agent');
 const { handleCommentKeydown } = require('../public/comment-keys');
+const {
+  shouldShowDeployBadge, deployButtonState, shouldCloseDeployDialog,
+} = require('../public/deploy-ui');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -57,7 +60,7 @@ async function main() {
   assert.match(index.body, /Open Prod/);
   assert.match(index.body, /Deploy: 0 pushes/);
   assert.match(index.body, /id="deployProjectBtn"/);
-  assert.doesNotMatch(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
+  assert.match(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
   ok('serves the front end');
 
   let submitted = 0;
@@ -145,23 +148,30 @@ async function main() {
     return { ok: true };
   };
 
+  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.can_deploy, false);
   const idleDeploy = await call('POST', `/api/projects/${proj.id}/deploy`);
-  assert.equal(idleDeploy.status, 200, 'deploy is available even when nothing has been pushed');
+  assert.equal(idleDeploy.status, 400, 'deploy stays off when the folder has no fly.toml');
   assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_deploy, false);
 
+  const flyDir = path.join(tmp, 'fly-app');
+  fs.mkdirSync(flyDir);
+  fs.writeFileSync(path.join(flyDir, 'fly.toml'), "app = 'demo-app'\n");
+  const flyProj = (await call('PUT', `/api/projects/${proj.id}`, { directory: flyDir })).body;
+  assert.equal(flyProj.can_deploy, true);
+
   const { projects: projectStore } = require('../db');
-  projectStore.recordPush(proj.id, 'abc123');
+  projectStore.recordMerge(proj.id, 'abc123');
   const waiting = (await call('GET', `/api/projects/${proj.id}`)).body;
   assert.equal(waiting.needs_deploy, true);
   assert.equal(waiting.pending_pushes, 1);
-  projectStore.recordPush(proj.id, 'def456');
+  projectStore.recordMerge(proj.id, 'def456');
   assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.pending_pushes, 2);
-  ok('a GitHub push that has not been deployed lights the deploy flag');
+  ok('a merge into main that has not been deployed lights the deploy flag');
 
   const deploymentResult = await call('POST', `/api/projects/${proj.id}/deploy`);
   assert.equal(deploymentResult.status, 202);
   assert.equal(started.id, proj.id);
-  assert.equal(started.directory, workdir);
+  assert.equal(started.directory, flyDir);
   assert.equal(deploymentResult.body.running, true);
   assert.match(deploymentResult.body.output, /Verifying app config/);
   assert.equal((await call('POST', '/api/projects/999999/deploy')).status, 404);
@@ -181,7 +191,7 @@ async function main() {
   ok('a successful fly deploy clears the deploy flag');
 
   const deployStatusProject = (await call('POST', '/api/projects', {
-    name: 'Deploy status', directory: workdir,
+    name: 'Deploy status', directory: flyDir,
   })).body;
   assert.equal(deployStatusProject.deployment_needed, 0);
   const shippedChange = (await call('POST', `/api/projects/${deployStatusProject.id}/tasks`, {
@@ -192,13 +202,38 @@ async function main() {
   await call('PUT', `/api/tasks/${shippedChange.id}`, { status: 'completed' });
   let deployStatus = (await call('GET', '/api/projects')).body
     .find((project) => project.id === deployStatusProject.id);
+  assert.equal(deployStatus.deployment_needed, 0, 'finishing a task without a merge does not light Deploy');
+  projectStore.recordMerge(deployStatusProject.id, 'sha-merge');
+  deployStatus = (await call('GET', '/api/projects')).body
+    .find((project) => project.id === deployStatusProject.id);
   assert.equal(deployStatus.deployment_needed, 1);
-  assert.equal((await call('POST', `/api/projects/${deployStatusProject.id}/deploy`)).status, 200);
+  assert.equal(deployStatus.pending_pushes, 1);
+  assert.equal((await call('POST', `/api/projects/${deployStatusProject.id}/deploy`)).status, 202);
+  projectStore.recordDeploy(deployStatusProject.id, 'sha-merge');
+  projectStore.markDeployed(deployStatusProject.id);
   deployStatus = (await call('GET', '/api/projects')).body
     .find((project) => project.id === deployStatusProject.id);
   assert.equal(deployStatus.deployment_needed, 0);
+  assert.equal(deployStatus.pending_pushes, 0);
   await call('DELETE', `/api/projects/${deployStatusProject.id}`);
-  ok('tracks whether completed work still needs deployment');
+  await call('PUT', `/api/projects/${proj.id}`, { directory: workdir });
+  ok('tracks whether merged work still needs deployment');
+
+  const noFly = { can_deploy: false, pending_pushes: 2, needs_deploy: true, deployment_needed: 1 };
+  assert.equal(shouldShowDeployBadge(noFly), false);
+  assert.equal(deployButtonState(noFly).disabled, true);
+  const due = { can_deploy: true, pending_pushes: 2, needs_deploy: true, deployment_needed: 1 };
+  assert.equal(shouldShowDeployBadge(due), true);
+  assert.equal(deployButtonState(due).text, 'Deploy: 2 pushes');
+  assert.equal(deployButtonState(due).disabled, false);
+  const idle = { can_deploy: true, pending_pushes: 0, needs_deploy: false, deployment_needed: 0 };
+  assert.equal(shouldShowDeployBadge(idle), false);
+  assert.equal(deployButtonState(idle).text, 'Deploy: 0 pushes');
+  assert.equal(deployButtonState(idle, { busy: true }).text, 'Deploying…');
+  assert.equal(shouldCloseDeployDialog('ok'), true);
+  assert.equal(shouldCloseDeployDialog('failed'), false);
+  assert.equal(shouldCloseDeployDialog('running'), false);
+  ok('hides Deploy without fly.toml and closes the popup after a successful deploy');
 
   const local = require('../local');
   const localDir = path.join(tmp, 'local-app');
@@ -212,6 +247,8 @@ async function main() {
   assert.equal(local.readProdUrl(localDir), 'https://demo-app.fly.dev');
   assert.equal(local.readPort(workdir), null);
   assert.equal(local.readProdUrl(workdir), null);
+  assert.equal(local.hasFlyConfig(localDir), true);
+  assert.equal(local.hasFlyConfig(workdir), false);
   ok('reads the local port and fly URL from the project directory');
 
   const localProj = (await call('POST', '/api/projects', {
@@ -221,6 +258,7 @@ async function main() {
   assert.equal(localProj.local_running, false);
   assert.equal(localProj.local_url, 'http://localhost:38113');
   assert.equal(localProj.prod_url, 'https://demo-app.fly.dev');
+  assert.equal(localProj.can_deploy, true);
   assert.equal((await call('POST', '/api/projects/999999/run-local')).status, 404);
   assert.equal((await call('POST', `/api/projects/${noDirectory?.id || 0}/run-local`)).status, 404);
   const noScript = (await call('POST', '/api/projects', {
