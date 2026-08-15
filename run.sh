@@ -13,7 +13,8 @@ if ! command -v "${CLAUDE_BIN:-claude}" >/dev/null 2>&1; then
   echo
 fi
 
-PORT="${PORT:-3000}"
+# 5000 is Vibe Wrangler's port (see c:\github\apps.json); 3000 now belongs to house_dreamer.
+PORT="${PORT:-5000}"
 export PORT
 
 echo "[Vibe Wrangler] starting on http://localhost:$PORT"

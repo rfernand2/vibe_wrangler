@@ -15,7 +15,10 @@ if errorlevel 1 (
   echo.
 )
 
-if "%PORT%"=="" set PORT=3000
+rem 5000 is Vibe Wrangler's port (see c:\github\apps.json). It is where the board has always
+rem actually run -- a machine-wide PORT=5000 beat the old 3000 default -- and 3000 now belongs
+rem to house_dreamer, so leaving it as the fallback was a collision waiting to happen.
+if "%PORT%"=="" set PORT=5000
 
 echo [Vibe Wrangler] starting on http://localhost:%PORT%
 start "" "http://localhost:%PORT%"
