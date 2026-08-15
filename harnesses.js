@@ -252,8 +252,8 @@ const HARNESSES = [
     ],
     env(env, provider) {
       if (!provider?.register) {
-        // Native Grok on this machine is the xAI API key. The CLI only knows config
-        // aliases without it, so grok-4.6 becomes "unknown model id".
+        // Native Grok 4.6 is the xAI API key. The grok.com login is a free Build
+        // quota; stripping the key made 4.6 unknown or capped as free.
         return;
       }
       // The alias names one variable, so a key kept under any of the other spellings is copied to it

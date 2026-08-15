@@ -831,8 +831,8 @@ async function main() {
   const orRow = usageMod.finishRow({ model: 'openai/gpt-5.6-luna', input: 1000, cached: 0, output: 10, costUsd: null, costSource: 'estimate' }, { harness: 'grok' });
   assert.equal(orRow.channel, 'api');
   assert.ok(orRow.costUsd > 0);
-  const grokApiRow = usageMod.finishRow({ model: 'grok-4.6', input: 10, cached: 0, output: 2, costUsd: 0.01, costSource: 'cli' }, { harness: 'grok', provider: 'native' });
-  assert.equal(grokApiRow.channel, 'api');
+  const grokSubRow = usageMod.finishRow({ model: 'grok-4.6', input: 10, cached: 0, output: 2, costUsd: 0.01, costSource: 'cli' }, { harness: 'grok', provider: 'native' });
+  assert.equal(grokSubRow.channel, 'api');
   const olRow = usageMod.finishRow({ model: 'qwen3.6:latest', input: 10, cached: 0, output: 2, costUsd: null }, { harness: 'grok' });
   assert.equal(olRow.channel, 'api');
   assert.equal(olRow.costUsd, 0);
@@ -903,7 +903,7 @@ async function main() {
   const grokSub = harnesses.resolve('grok', 'native', 'grok-4.6');
   const grokEnv = { XAI_API_KEY: 'xai', GROK_API_KEY: 'g', PATH: '/bin' };
   grokSub.harness.env(grokEnv, grokSub.provider);
-  assert.equal(grokEnv.XAI_API_KEY, 'xai', 'native Grok still needs the xAI API key');
+  assert.equal(grokEnv.XAI_API_KEY, 'xai', 'native Grok uses the xAI API key');
   const orKeep = { OPENROUTER_API_KEY: 'or', XAI_API_KEY: 'xai' };
   or.harness.env(orKeep, or.provider);
   assert.equal(orKeep.OPENROUTER_API_KEY, 'or', 'OpenRouter still uses its own key');

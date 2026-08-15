@@ -21,7 +21,6 @@ const PRICES = {
 
 function channelFor(provider, harness) {
   if (provider === 'openrouter' || provider === 'ollama') return 'api';
-  // Grok Build's native path is the xAI API key, not a flat login.
   if (harness === 'grok') return 'api';
   return 'subscription';
 }
