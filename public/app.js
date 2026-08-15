@@ -243,6 +243,11 @@ async function loadProjects() {
   // Settle which project is current before drawing, so the list highlights it on the first paint.
   if (state.projectId && !state.projects.some((p) => p.id === state.projectId)) state.projectId = null;
   if (!state.projectId && state.projects.length) state.projectId = state.projects[0].id;
+  renderProjects();
+}
+
+/** Repaint the cached sidebar without repeating its comparatively expensive git and port checks. */
+function renderProjects() {
   saveSelection();
 
   const total = state.projects.reduce((n, p) => n + p.task_count, 0);
@@ -294,7 +299,9 @@ const selectProject = run(async (id) => {
   state.projectId = id;
   state.filter = 'all';
   state.tagFilter = null;
-  await loadProjects();
+  // Selection itself is local. Project counts and repository state are refreshed by change events;
+  // blocking this click on those checks made switching take several seconds on larger sidebars.
+  renderProjects();
   await loadTasks();
 });
 
@@ -302,7 +309,7 @@ const selectAllTasks = run(async () => {
   state.view = 'all';
   state.filter = 'all';
   state.tagFilter = null;
-  await loadProjects();
+  renderProjects();
   await loadTasks();
 });
 
@@ -430,9 +437,8 @@ async function loadTasks() {
 
   if (state.tagFilter && !state.tasks.some((t) => t.tags.includes(state.tagFilter))) state.tagFilter = null;
 
-  await loadStatuses();
-  await loadTags();
-  await loadQuickTags();
+  // These are independent lookups; one network round trip is enough for all three.
+  await Promise.all([loadStatuses(), loadTags(), loadQuickTags()]);
   renderFilters();
   renderTagFilters();
   renderTasks();

@@ -75,6 +75,15 @@ async function main() {
   assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
   ok('serves the front end');
 
+  const appScript = (await call('GET', '/app.js')).body;
+  const projectSwitch = /const selectProject = run\(async \(id\) => \{([\s\S]*?)\n\}\);/.exec(appScript)?.[1] || '';
+  assert.match(projectSwitch, /renderProjects\(\)/, 'switching immediately redraws the cached selection');
+  assert.doesNotMatch(projectSwitch, /loadProjects\(\)/,
+    'switching must not wait for repository and listening-port checks');
+  assert.match(appScript, /Promise\.all\(\[loadStatuses\(\), loadTags\(\), loadQuickTags\(\)\]\)/,
+    'independent switch lookups run concurrently');
+  ok('keeps project switching on the fast cached path');
+
   let submitted = 0;
   const form = { requestSubmit() { submitted++; } };
   const key = (overrides = {}) => ({
