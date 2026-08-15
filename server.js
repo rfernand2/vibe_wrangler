@@ -4,12 +4,13 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  projects, tasks, comments, allStatuses, allTags, quickTags, settings, performance, GRADES,
+  projects, tasks, comments, allStatuses, allTags, quickTags, settings, performance, usage, GRADES,
 } = require('./db');
 const agent = require('./agent');
 const events = require('./events');
 const attachments = require('./attachments');
 const harnesses = require('./harnesses');
+const usageLib = require('./usage');
 const deployment = require('./deploy');
 const local = require('./local');
 const { version } = require('./package.json');
@@ -146,6 +147,9 @@ async function api(req, res, url) {
 
   // /api/performance — graded tasks in chronological order for the agent history chart
   if (a === 'performance' && method === 'GET') return json(res, 200, performance.list());
+
+  // /api/usage — tokens and cost, split into subscription (simulated API price) and API (metered)
+  if (a === 'usage' && method === 'GET') return json(res, 200, usage.report());
 
   // /api/quick-tags — the set offered on a task's right-click menu
   if (a === 'quick-tags') {
@@ -435,6 +439,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  const imported = usageLib.backfill({
+    logDir: process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs'),
+    tasks,
+    record: (row) => usage.record(row),
+    has: (logFile, model) => usage.has(logFile, model),
+  });
+  if (imported.imported) {
+    console.log(`imported usage from ${imported.imported} model row(s) in ${imported.scanned} log(s)`);
+  }
   const r = agent.adoptOrphans();
   if (r.adopted) console.log(`reattached to ${r.adopted} agent(s) still running from a previous session`);
   if (r.closed) console.log(`closed ${r.closed} stale agent run record(s)`);

@@ -809,6 +809,32 @@ async function main() {
   assert.equal(codex({ type: 'item.completed', item: { type: 'reasoning' } }), null);
   ok('each harness reads its own event stream');
 
+  const usageMod = require('../usage');
+  const claudeUsage = usageMod.parseEvent({
+    type: 'result', subtype: 'success', total_cost_usd: 1.25,
+    modelUsage: { 'claude-opus-5': { inputTokens: 100, outputTokens: 20, cacheReadInputTokens: 50, costUSD: 1.25 } },
+  });
+  assert.equal(claudeUsage.models[0].model, 'claude-opus-5');
+  assert.equal(claudeUsage.models[0].cached, 50);
+  assert.equal(claudeUsage.models[0].costUsd, 1.25);
+  const codexUsage = usageMod.parseEvent({
+    type: 'turn.completed',
+    usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50, reasoning_output_tokens: 10 },
+  });
+  assert.equal(codexUsage.models[0].input, 600);
+  assert.equal(codexUsage.models[0].output, 60);
+  const priced = usageMod.finishRow(codexUsage.models[0], { model: 'gpt-5.6-sol', harness: 'codex', provider: 'native' });
+  assert.equal(priced.channel, 'subscription');
+  assert.ok(priced.costUsd > 0);
+  ok('usage events are parsed into in/cached/out and a simulated API cost');
+  assert.equal(usageMod.parseEvent({ type: 'system', usage: { input_tokens: 2, cached_input_tokens: 99, output_tokens: 3 } }), null);
+  const orRow = usageMod.finishRow({ model: 'openai/gpt-5.6-luna', input: 1000, cached: 0, output: 10, costUsd: null, costSource: 'estimate' }, { harness: 'grok' });
+  assert.equal(orRow.channel, 'api');
+  assert.ok(orRow.costUsd > 0);
+  const olRow = usageMod.finishRow({ model: 'qwen3.6:latest', input: 10, cached: 0, output: 2, costUsd: null }, { harness: 'grok' });
+  assert.equal(olRow.channel, 'api');
+  assert.equal(olRow.costUsd, 0);
+
   // Grok streams a token at a time, so a directive only becomes matchable once buffered to a line.
   const grokRead = harnesses.byId('grok').reader();
   assert.equal(grokRead({ type: 'thought', data: 'hmm' }), null);
@@ -862,6 +888,26 @@ async function main() {
   assert.deepEqual(none, {}, 'invents nothing when no key is set anywhere');
   ok('an OpenRouter key set under any of its spellings reaches the name the alias asks for');
 
+  // Native runs must use the subscription login. An inherited API key would silently bill per token.
+  const claudeEnv = { ANTHROPIC_API_KEY: 'sk-ant', ANTHROPIC_AUTH_TOKEN: 'tok', PATH: '/bin' };
+  harnesses.byId('claude').env(claudeEnv);
+  assert.equal(claudeEnv.ANTHROPIC_API_KEY, undefined);
+  assert.equal(claudeEnv.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(claudeEnv.PATH, '/bin');
+  const codexEnv = { OPENAI_API_KEY: 'sk-openai', CODEX_API_KEY: 'sk-codex', PATH: '/bin' };
+  harnesses.byId('codex').env(codexEnv);
+  assert.equal(codexEnv.OPENAI_API_KEY, undefined);
+  assert.equal(codexEnv.CODEX_API_KEY, undefined);
+  const grokSub = harnesses.resolve('grok', 'native', 'grok-4.6');
+  const grokEnv = { XAI_API_KEY: 'xai', GROK_API_KEY: 'g', PATH: '/bin' };
+  grokSub.harness.env(grokEnv, grokSub.provider);
+  assert.equal(grokEnv.XAI_API_KEY, undefined);
+  assert.equal(grokEnv.GROK_API_KEY, undefined);
+  const orKeep = { OPENROUTER_API_KEY: 'or', XAI_API_KEY: 'xai' };
+  or.harness.env(orKeep, or.provider);
+  assert.equal(orKeep.OPENROUTER_API_KEY, 'or', 'OpenRouter still uses its own key');
+  ok('native Claude, Codex and Grok strip API keys so the subscription login is used');
+
   // Both of these otherwise reach the human as a status code from somewhere else, mid-run.
   assert.match(gh.preflight(or.provider, or.model, {}), /Set one of OPENROUTER_API_KEY/);
   assert.equal(gh.preflight(or.provider, or.model, { OPENROUTER_API_KEY: 'k' }), null);
@@ -873,6 +919,28 @@ async function main() {
   assert.deepEqual((await call('GET', '/api/settings')).body,
     { harness: 'claude', provider: 'native', model: 'claude-opus-5', random: false });
   ok('defaults to the first model of the first harness');
+
+  const emptyUsage = (await call('GET', '/api/usage')).body;
+  assert.deepEqual(emptyUsage.subscription.models, []);
+  assert.equal(emptyUsage.subscription.totals.tasks, 0);
+  assert.deepEqual(emptyUsage.api.models, []);
+  const { usage: usageStore } = require('../db');
+  usageStore.record({
+    task_id: null, log_file: 'task-1-test.log', harness: 'claude', provider: 'native',
+    model: 'claude-opus-5', channel: 'subscription',
+    input_tokens: 100, cached_tokens: 20, output_tokens: 10, cost_usd: 0.5, cost_source: 'cli',
+  });
+  usageStore.record({
+    task_id: null, log_file: 'task-2-test.log', harness: 'grok', provider: 'openrouter',
+    model: 'openrouter-gpt-5-6-luna', channel: 'api',
+    input_tokens: 30, cached_tokens: 0, output_tokens: 5, cost_usd: 0.02, cost_source: 'cli',
+  });
+  const filled = (await call('GET', '/api/usage')).body;
+  assert.equal(filled.subscription.models[0].model, 'claude-opus-5');
+  assert.equal(filled.subscription.totals.cost_usd, 0.5);
+  assert.equal(filled.api.models[0].channel, 'api');
+  assert.equal(filled.api.totals.cost_usd, 0.02);
+  ok('the usage report splits subscription and API costs by model');
 
   assert.equal((await call('PUT', '/api/settings', { harness: 'nope' })).status, 400);
   assert.equal((await call('PUT', '/api/settings', { harness: 'codex', model: 'claude-opus-5' })).status, 400);

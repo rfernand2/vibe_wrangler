@@ -3,11 +3,12 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tasks, comments, projects, checklist, runs, settings } = require('./db');
+const { tasks, comments, projects, checklist, runs, settings, usage: usageStore } = require('./db');
 const git = require('./git');
 const proc = require('./proc');
 const attachments = require('./attachments');
 const harnesses = require('./harnesses');
+const usage = require('./usage');
 
 const LOG_DIR = process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs');
 const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname, 'data', 'worktrees');
@@ -308,6 +309,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
   running.set(taskId, entry);
 
   let settled = false;
+  let collectedUsage = null;
   let lingerTimer = null;
   const settle = (result) => {
     if (settled) return;
@@ -315,6 +317,17 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
     clearTimeout(lingerTimer);
     running.delete(taskId);
     if (record) runs.end(record.id);
+    if (collectedUsage) {
+      usageStore.recordParsed({
+        run_id: record?.id ?? null,
+        task_id: taskId,
+        log_file: logFile ? path.basename(logFile) : null,
+        harness: harness.id,
+        provider: provider.id,
+        model: model.id,
+        parsed: collectedUsage,
+      });
+    }
     onDone(result);
   };
 
@@ -367,6 +380,7 @@ function spawnAgent({ taskId, cwd, prompt, log, iso, logFile, harness, provider,
 
       const ev = read(evt);
       if (!ev) continue;
+      if (ev.usage) collectedUsage = ev.usage;
 
       if (ev.done) {
         // Not every harness puts the summary in its terminal event; the last message always has it.

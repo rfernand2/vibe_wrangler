@@ -1574,3 +1574,27 @@ run(async () => {
   connectEvents();
   setInterval(tickElapsed, 1000);
 })();
+
+
+/* ---------- LLM usage ---------- */
+let usageReport = null;
+let usageTab = 'subscription';
+
+function showUsageTab(tab) {
+  usageTab = tab;
+  for (const btn of document.querySelectorAll('[data-usage-tab]')) {
+    const on = btn.dataset.usageTab === tab;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  }
+  if (usageReport) renderUsageReport(usageReport, $('usageBody'), usageTab);
+}
+
+$('usageBtn').onclick = run(async () => {
+  usageReport = await api('GET', '/api/usage');
+  showUsageTab(usageTab);
+  openDialog('usageDialog');
+});
+for (const btn of document.querySelectorAll('[data-usage-tab]')) {
+  btn.onclick = () => showUsageTab(btn.dataset.usageTab);
+}

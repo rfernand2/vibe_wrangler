@@ -127,9 +127,9 @@ every request.
 ## Why a CLI (not the API)
 
 The agent is invoked by shelling out to its CLI in non-interactive mode. That means it uses
-**your existing subscription login** — there is no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to manage and no
+**your existing subscription login** — there is no `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `XAI_API_KEY` to manage and no
 per-token billing. (Routing Grok Build at OpenRouter is the one exception, and it's opt-in: that's a
-metered account you point it at deliberately.) It also keeps the integration surface tiny: an agent is a
+metered account you point it at deliberately.) The **Usage** button on the board splits those two channels: subscription rows show the API cost the same tokens would have billed, API rows show what you actually paid. It also keeps the integration surface tiny: an agent is a
 command, a working directory and a stream of output, which is why supporting a second CLI was an entry in
 `harnesses.js` rather than a rewrite.
 

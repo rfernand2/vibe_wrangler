@@ -85,6 +85,25 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS llm_usage (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER,
+    task_id       INTEGER,
+    log_file      TEXT,
+    harness       TEXT,
+    provider      TEXT,
+    model         TEXT NOT NULL,
+    channel       TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    cached_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd      REAL,
+    cost_source   TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_log_model
+    ON llm_usage(log_file, model) WHERE log_file IS NOT NULL;
+
   CREATE INDEX IF NOT EXISTS idx_runs_open ON agent_runs(ended_at);
   CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
@@ -586,8 +605,95 @@ function allStatuses() {
   return { builtin: BUILTIN_STATUSES, custom };
 }
 
+const usageLib = require('./usage');
+
+const emptyTotals = { tasks: 0, runs: 0, input_tokens: 0, cached_tokens: 0, output_tokens: 0, cost_usd: 0 };
+
+const usage = {
+  has(logFile, model) {
+    if (!logFile || !model) return false;
+    return Boolean(q('SELECT 1 FROM llm_usage WHERE log_file = ? AND model = ?').get(logFile, model));
+  },
+  record(row) {
+    q(`INSERT OR IGNORE INTO llm_usage
+       (run_id, task_id, log_file, harness, provider, model, channel,
+        input_tokens, cached_tokens, output_tokens, cost_usd, cost_source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      row.run_id ?? null,
+      row.task_id ?? null,
+      row.log_file ?? null,
+      row.harness ?? null,
+      row.provider ?? 'native',
+      row.model,
+      row.channel,
+      row.input_tokens || 0,
+      row.cached_tokens || 0,
+      row.output_tokens || 0,
+      row.cost_usd ?? null,
+      row.cost_source ?? null,
+    );
+  },
+  recordParsed({ run_id, task_id, log_file, harness, provider, model, parsed }) {
+    if (!parsed || !parsed.models || !parsed.models.length) return 0;
+    let n = 0;
+    for (const raw of parsed.models) {
+      const row = usageLib.finishRow(raw, {
+        model,
+        harness: parsed.harness || harness,
+        provider: provider || 'native',
+      });
+      usage.record({
+        run_id,
+        task_id,
+        log_file,
+        harness: row.harness,
+        provider: row.provider,
+        model: row.model,
+        channel: row.channel,
+        input_tokens: row.input,
+        cached_tokens: row.cached,
+        output_tokens: row.output,
+        cost_usd: row.costUsd,
+        cost_source: row.costSource,
+      });
+      n++;
+    }
+    return n;
+  },
+  report() {
+    const models = q(`
+      SELECT channel, harness, provider, model,
+             COUNT(DISTINCT task_id) AS tasks,
+             COUNT(*) AS runs,
+             COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+             SUM(cost_usd) AS cost_usd
+      FROM llm_usage
+      GROUP BY channel, harness, provider, model
+      ORDER BY COALESCE(cost_usd, 0) DESC, model
+    `).all();
+    const totals = q(`
+      SELECT channel,
+             COUNT(DISTINCT task_id) AS tasks,
+             COUNT(*) AS runs,
+             COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+             SUM(cost_usd) AS cost_usd
+      FROM llm_usage
+      GROUP BY channel
+    `).all();
+    const pack = (channel) => ({
+      models: models.filter((r) => r.channel === channel),
+      totals: totals.find((r) => r.channel === channel) || { channel, ...emptyTotals },
+    });
+    return { subscription: pack('subscription'), api: pack('api') };
+  },
+};
+
 module.exports = {
-  db, projects, tasks, comments, checklist, runs, quickTags, settings, performance,
+  db, projects, tasks, comments, checklist, runs, quickTags, settings, performance, usage,
   allStatuses, allTags, normalizeTags, BUILTIN_STATUSES, BUILTIN_QUICK_TAGS, DB_PATH,
   GRADES,
 };

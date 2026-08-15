@@ -14,6 +14,7 @@
   <h1>Vibe Wrangler</h1>
   <span class="appbar-sub" id="agentInfo"></span>
   <span class="spacer"></span>
+  <button class="btn btn-ghost" id="usageBtn" title="LLM usage">Usage</button>
   <button class="btn btn-ghost" id="performanceBtn" title="Agent performance">Performance</button>
   <button class="btn btn-ghost" id="agentsBtn" title="Running agents">Agents</button>
 </header>
@@ -267,6 +268,28 @@
   </div>
 </aside>
 
+
+<!-- LLM usage dialog -->
+<dialog id="usageDialog" class="usage-dialog">
+  <div class="dialog-form">
+    <div class="dialog-head">
+      <div>
+        <h3>LLM usage</h3>
+        <p class="muted" id="usageSubtitle">Tokens and cost by model. Subscription is what the same tokens would have cost on the API.</p>
+      </div>
+      <button type="button" class="icon-btn" data-close="usageDialog" aria-label="Close">&times;</button>
+    </div>
+    <div class="usage-tabs" role="tablist">
+      <button type="button" class="usage-tab is-active" role="tab" aria-selected="true" data-usage-tab="subscription">Subscription</button>
+      <button type="button" class="usage-tab" role="tab" aria-selected="false" data-usage-tab="api">API</button>
+    </div>
+    <div id="usageBody" class="usage-body"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close="usageDialog">Close</button>
+    </div>
+  </div>
+</dialog>
+
 <!-- Agent performance dialog -->
 <dialog id="performanceDialog" class="performance-dialog">
   <div class="dialog-form">
@@ -321,6 +344,7 @@
 <script src="/deploy-ui.js"></script>
 <script src="/push-ui.js"></script>
 <script src="/performance-chart.js"></script>
+<script src="/usage-report.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

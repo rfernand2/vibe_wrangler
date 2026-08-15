@@ -11,6 +11,7 @@
  */
 
 const fs = require('node:fs');
+const usage = require('./usage');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -139,6 +140,7 @@ const HARNESSES = [
           done: true,
           text: typeof evt.result === 'string' ? evt.result : '',
           failed: evt.is_error === true || Boolean(evt.subtype && evt.subtype !== 'success'),
+          ...(usage.parseEvent(evt) && { usage: usage.parseEvent(evt) }),
         };
       }
       if (evt.type === 'assistant') {
@@ -171,11 +173,17 @@ const HARNESSES = [
       '--model', model,
       '-',
     ],
-    env() {},
+    env(env) {
+      // Force ChatGPT subscription login. An inherited API key would bill per token instead.
+      delete env.OPENAI_API_KEY;
+      delete env.OPENAI_API_KEY_NEW;
+      delete env.CODEX_API_KEY;
+      delete env.OPENAI_ACCESS_TOKEN;
+    },
     reader: stateless((evt) => {
       // Unlike Claude, the terminal event carries no text — the last message is the summary.
-      if (evt.type === 'turn.completed') return { done: true, failed: false };
-      if (evt.type === 'turn.failed') return { done: true, failed: true };
+      if (evt.type === 'turn.completed') return { done: true, failed: false, ...(usage.parseEvent(evt) && { usage: usage.parseEvent(evt) }) };
+      if (evt.type === 'turn.failed') return { done: true, failed: true, ...(usage.parseEvent(evt) && { usage: usage.parseEvent(evt) }) };
       if (evt.type === 'item.completed' && evt.item?.type === 'agent_message') {
         return evt.item.text ? { text: evt.item.text } : null;
       }
@@ -243,6 +251,13 @@ const HARNESSES = [
       '--model', model,
     ],
     env(env, provider) {
+      if (!provider?.register) {
+        // Native xAI: force the Grok subscription login. An inherited API key would bill per token.
+        delete env.XAI_API_KEY;
+        delete env.GROK_API_KEY;
+        delete env.XAI_API_TOKEN;
+        return;
+      }
       // The alias names one variable, so a key kept under any of the other spellings is copied to it
       // rather than left for the endpoint to reject as a bare 401 five seconds into the run.
       const key = provider?.register?.env_key;
@@ -282,7 +297,7 @@ const HARNESSES = [
         if (evt.type === 'end') {
           // `EndTurn` is the only way a run finishes having said everything it meant to. Anything
           // else — an error, or `Cancelled` from running out of turns — stopped it partway.
-          return { done: true, text: all.trim(), failed: Boolean(evt.error) || evt.stopReason !== 'EndTurn' };
+          return { done: true, text: all.trim(), failed: Boolean(evt.error) || evt.stopReason !== 'EndTurn', ...(usage.parseEvent(evt) && { usage: usage.parseEvent(evt) }) };
         }
         if (evt.type !== 'text' || typeof evt.data !== 'string') return null;
         all += evt.data;
