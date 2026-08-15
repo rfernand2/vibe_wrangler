@@ -57,6 +57,10 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Retry failed** — a run that fails leaves the task in `failed` with its work parked on a branch.
   **Retry failed** re-runs every failed task in the project; the retry gets a *new* branch, so the
   branch holding the earlier attempt's work is never deleted out from under you.
+- **Agent performance** — a chart of the grades you have given, one line per agent. Each point is that
+  agent's *average* grade for a day, so a busy day reads as one mark rather than a spike of five; once
+  the history runs past 50 days the points become weekly averages instead. A day (or week) an agent was
+  not used leaves a gap in its line rather than a straight line drawn across the silence.
 - **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
   This includes agents inherited from an earlier run of the app, not just ones this instance started.
 - **Harness, provider & model** — **Settings** (under the ☰ menu, alongside **About**) picks the three

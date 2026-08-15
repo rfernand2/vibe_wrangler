@@ -11,6 +11,7 @@ const { handleCommentKeydown } = require('../public/comment-keys');
 const {
   shouldShowDeployBadge, deployButtonState, shouldCloseDeployDialog,
 } = require('../public/deploy-ui');
+const { performanceSeries } = require('../public/performance-chart');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -486,6 +487,44 @@ async function main() {
   assert.deepEqual(performance.map((point) => point.model), ['claude-opus-5', 'grok-4.5']);
   assert.ok(performance.every((point) => point.graded_at && point.task_title && point.project_name));
   ok('stores validated task grades with the actual model and publishes chart history');
+
+  // Graded at noon local time, so the day a run belongs to is the same in every time zone.
+  const gradedAt = (dayOffset) => {
+    const at = new Date();
+    at.setHours(12, 0, 0, 0);
+    at.setDate(at.getDate() + dayOffset);
+    return at.toISOString().replace('T', ' ').slice(0, 19);
+  };
+  const graded = (dayOffset, grade, model) => ({
+    graded_at: gradedAt(dayOffset), grade, model,
+    project_name: 'Demo', task_number: 1, task_title: 'A task',
+  });
+
+  const daily = performanceSeries([
+    graded(0, 'B', 'model-a'), graded(0, 'A+', 'model-a'), graded(2, 'C', 'model-a'),
+    graded(1, 'A', 'model-b'),
+  ]);
+  assert.equal(daily.bucket, 'day');
+  assert.equal(daily.periods.length, 3, 'the unused middle day still takes up its place');
+  const modelA = daily.series.find((s) => s.label === 'model-a');
+  assert.deepEqual(modelA.points.map((p) => [p.period, p.grade, p.count]),
+    [[0, 'A-', 2], [2, 'C', 1]], 'two runs in a day average into one point');
+  assert.equal(modelA.segments.length, 2, 'a day the model sat out breaks its line');
+  assert.deepEqual(daily.series.find((s) => s.label === 'model-b').points.map((p) => p.period), [1]);
+
+  const weekly = performanceSeries([
+    graded(0, 'B', 'model-a'), graded(30, 'A', 'model-a'), graded(60, 'C', 'model-a'),
+  ]);
+  assert.equal(weekly.bucket, 'week', 'more than 50 days of history averages by week');
+  assert.equal(weekly.periods.length, 9);
+  assert.deepEqual(weekly.series[0].points.map((p) => p.period), [0, 4, 8]);
+  assert.equal(weekly.series[0].segments.length, 3, 'every skipped week breaks the line');
+
+  assert.deepEqual(performanceSeries([
+    { graded_at: null, grade: 'A', model: 'model-a' },
+    { graded_at: gradedAt(0), grade: 'excellent', model: 'model-a' },
+  ]).series, [], 'rows without a usable date or grade are left off the chart');
+  ok('averages grades per day, switches to weeks over long histories, and gaps unused periods');
 
   const ungraded = (await call('PUT', `/api/tasks/${t1.id}`, { grade: null })).body;
   assert.equal(ungraded.grade, null);

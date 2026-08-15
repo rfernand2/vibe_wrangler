@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const GRADES = ['F', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+'];
+const GRADES = GRADE_SCALE; // from performance-chart.js, which also averages along it
 
 const state = {
   view: 'project', // 'project' | 'all'
@@ -1316,37 +1316,39 @@ function performanceAgent(row) {
   return `${harnessName(row.harness)} · ${modelName(row.harness, row.provider, row.model)}${via}`;
 }
 
+const PERIOD_FMT = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+
 function renderPerformance(rows) {
-  $('performanceEmpty').hidden = rows.length !== 0;
-  $('performanceChart').hidden = rows.length === 0;
-  $('performanceLegend').hidden = rows.length === 0;
-  if (!rows.length) return;
+  // One point per agent per period, averaging the grades earned in it — see performance-chart.js.
+  const chart = performanceSeries(rows, performanceAgent);
+  const empty = chart.series.length === 0;
+  $('performanceEmpty').hidden = !empty;
+  $('performanceChart').hidden = empty;
+  $('performanceLegend').hidden = empty;
+  if (empty) return;
 
-  // Rows arrive oldest first, so each agent's runs land in the order it was used. A point's
-  // position along x is its place in that agent's own run of tasks, not the date it was graded:
-  // the lines then start together and can be read against each other run for run.
-  const groups = new Map();
-  for (const row of rows) {
-    const label = performanceAgent(row);
-    if (!groups.has(label)) groups.set(label, []);
-    const points = groups.get(label);
-    points.push({ row, use: points.length + 1 });
-  }
-  const maxUses = Math.max(...[...groups.values()].map((points) => points.length));
+  const weekly = chart.bucket === 'week';
+  const periodName = weekly ? 'week' : 'day';
+  $('performanceSubtitle').textContent =
+    `Your average task grade per ${periodName}, for each agent`;
 
-  const width = Math.max(700, maxUses * 72 + 120);
+  const periods = chart.periods.length;
+  const width = Math.max(700, periods * 56 + 120);
   const height = 390;
   const margin = { top: 22, right: 24, bottom: 72, left: 48 };
   const plotW = width - margin.left - margin.right;
   const plotH = height - margin.top - margin.bottom;
-  const x = (use) => margin.left
-    + (maxUses === 1 ? plotW / 2 : ((use - 1) / (maxUses - 1)) * plotW);
-  const y = (grade) => margin.top + plotH - (GRADES.indexOf(grade) / (GRADES.length - 1)) * plotH;
+  const x = (period) => margin.left
+    + (periods === 1 ? plotW / 2 : (period / (periods - 1)) * plotW);
+  // Averages land between grades, so y takes the position on the scale rather than a grade name.
+  const y = (value) => margin.top + plotH - (value / (GRADES.length - 1)) * plotH;
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img',
-    'aria-label': 'Agent grades by how many times each agent has been used, from F at the bottom to A plus at the top' });
+    'aria-label': `Each agent's average grade per ${periodName}, from F at the bottom to A plus at the top` });
+  // Let a long history scroll sideways instead of squeezing every period into the dialog.
+  svg.style.minWidth = `${width}px`;
 
   for (const grade of GRADES) {
-    const yy = y(grade);
+    const yy = y(GRADES.indexOf(grade));
     svg.append(svgEl('line', { x1: margin.left, y1: yy, x2: width - margin.right, y2: yy,
       class: 'chart-grid' }));
     const label = svgEl('text', { x: margin.left - 9, y: yy + 4, 'text-anchor': 'end',
@@ -1355,41 +1357,51 @@ function renderPerformance(rows) {
     svg.append(label);
   }
 
-  [...groups.entries()].forEach(([label, points], groupIndex) => {
+  const periodLabel = (period) =>
+    `${weekly ? 'week of ' : ''}${PERIOD_FMT.format(chart.periods[period].date)}`;
+
+  chart.series.forEach(({ label, points, segments }, groupIndex) => {
     const color = CHART_COLORS[groupIndex % CHART_COLORS.length];
-    if (points.length > 1) {
+    // One polyline per unbroken stretch, so a period the agent sat out leaves a visible gap.
+    for (const segment of segments) {
+      if (segment.length < 2) continue;
       svg.append(svgEl('polyline', {
-        points: points.map((p) => `${x(p.use)},${y(p.row.grade)}`).join(' '),
+        points: segment.map((p) => `${x(p.period)},${y(p.value)}`).join(' '),
         fill: 'none', stroke: color, 'stroke-width': 2,
       }));
     }
     for (const p of points) {
-      const dot = svgEl('circle', { cx: x(p.use), cy: y(p.row.grade), r: 5,
+      const dot = svgEl('circle', { cx: x(p.period), cy: y(p.value), r: 5,
         fill: color, class: 'chart-point', tabindex: 0 });
       const title = svgEl('title');
-      title.textContent = `${label}: ${p.row.grade} — use ${p.use} — ${p.row.project_name} #${p.row.task_number} ${p.row.task_title} — ${when(p.row.graded_at)}`;
+      const only = p.count === 1 ? p.rows[0] : null;
+      title.textContent = only
+        ? `${label}: ${only.grade} — ${periodLabel(p.period)} — ${only.project_name} #${only.task_number} ${only.task_title}`
+        : `${label}: ${p.grade} average of ${p.count} runs — ${periodLabel(p.period)}`;
       dot.append(title);
       svg.append(dot);
     }
   });
 
-  // A tick per use while they still fit, thinned to a round step once they would collide.
-  const step = Math.max(1, Math.ceil(maxUses / 12));
-  for (let use = 1; use <= maxUses; use += step) {
-    const label = svgEl('text', { x: x(use), y: height - 42, 'text-anchor': 'middle',
+  // A tick per period while they still fit, thinned to a round step once they would collide.
+  const step = Math.max(1, Math.ceil(periods / 12));
+  for (let period = 0; period < periods; period += step) {
+    const label = svgEl('text', { x: x(period), y: height - 42, 'text-anchor': 'middle',
       class: 'chart-axis-label' });
-    label.textContent = String(use);
+    label.textContent = PERIOD_FMT.format(chart.periods[period].date);
     svg.append(label);
   }
   const axisTitle = svgEl('text', { x: margin.left + plotW / 2, y: height - 14,
     'text-anchor': 'middle', class: 'chart-axis-label' });
-  axisTitle.textContent = 'Times the agent has been used';
+  axisTitle.textContent = weekly
+    ? 'Week the tasks were graded (7-day periods)'
+    : 'Day the tasks were graded';
   svg.append(axisTitle);
   $('performanceChart').replaceChildren(svg);
 
   const legend = $('performanceLegend');
   legend.replaceChildren();
-  [...groups.keys()].forEach((label, index) => {
+  chart.series.map((s) => s.label).forEach((label, index) => {
     const item = document.createElement('span');
     item.className = 'legend-item';
     const swatch = document.createElement('span');
