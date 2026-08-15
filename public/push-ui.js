@@ -52,6 +52,19 @@ function pushButtonState(project, { busy = false } = {}) {
   };
 }
 
+/**
+ * The sidebar draws this button only when a push is outstanding, and its column is one word wide,
+ * so the label is just the verb and everything outstanding stays in the tooltip.
+ */
+function sidebarPushButtonState(project, { busy = false } = {}) {
+  if (busy) return { disabled: true, text: 'Pushing…', title: 'A push is already running' };
+  return {
+    disabled: false,
+    text: 'Push',
+    title: `${pushBadgeTitle(project)} — commit and push everything now`,
+  };
+}
+
 /** Says what the push actually did, since either half of it may have had nothing to do. */
 function pushResultMessage(result) {
   const parts = [];
@@ -70,6 +83,7 @@ if (typeof module !== 'undefined') {
     shouldShowPushBadge,
     pushBadgeTitle,
     pushButtonState,
+    sidebarPushButtonState,
     pushResultMessage,
   };
 }

@@ -260,35 +260,49 @@ function renderProjects() {
   list.replaceChildren();
   for (const p of state.projects) {
     const li = document.createElement('li');
+
+    // Column 1 — the project itself: its name on the first row, its counts on the second.
     const btn = document.createElement('button');
     btn.className = state.view === 'project' && p.id === state.projectId ? 'project-btn selected' : 'project-btn';
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
-    if (shouldShowDeployBadge(p)) {
-      const deployNeeded = document.createElement('span');
-      deployNeeded.className = 'deploy-needed';
-      deployNeeded.textContent = 'Deploy';
-      deployNeeded.title = 'Deployment needed';
-      name.append(' ', deployNeeded);
-    }
     const count = document.createElement('span');
     count.className = 'pcount';
     count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +
       (p.active_count ? ` · ${p.active_count} active` : '');
     btn.append(name, count);
+    // Both rows are clipped to a narrow column, so the full text stays available on hover.
+    btn.title = `${p.name}\n${count.textContent}`;
     btn.onclick = () => selectProject(p.id);
     li.append(btn);
-    // Sits outside the project button so that pressing it pushes instead of switching project.
+
+    // Columns 2 and 3 — the two things a project can be waiting for. They sit outside the project
+    // button because a button cannot contain another one, and pressing either must act on the
+    // project rather than select it. Each is drawn only when it has something to do, and the
+    // stylesheet pins it to its own column so the ones that are drawn still line up down the list.
     if (shouldShowPushBadge(p)) {
-      const pushNeeded = document.createElement('button');
-      pushNeeded.className = 'push-needed';
-      const pushState = pushButtonState(p, { busy: pushing.has(p.id) });
-      pushNeeded.textContent = pushState.text;
-      pushNeeded.title = pushState.title;
-      pushNeeded.disabled = pushState.disabled;
-      pushNeeded.onclick = () => pushProject(p.id);
-      li.append(pushNeeded);
+      const push = document.createElement('button');
+      push.className = 'row-btn push-needed';
+      const pushState = sidebarPushButtonState(p, { busy: pushing.has(p.id) });
+      push.textContent = pushState.text;
+      push.title = pushState.title;
+      push.disabled = pushState.disabled;
+      push.onclick = () => pushProject(p.id);
+      li.append(push);
+    }
+    if (shouldShowDeployBadge(p)) {
+      const deploy = document.createElement('button');
+      deploy.className = 'row-btn deploy-needed';
+      const deployState = sidebarDeployButtonState(p, {
+        busy: deployingProjectId === p.id,
+        blocked: deployingProjectId != null && deployingProjectId !== p.id,
+      });
+      deploy.textContent = deployState.text;
+      deploy.title = deployState.title;
+      deploy.disabled = deployState.disabled;
+      deploy.onclick = () => deployProject(p.id);
+      li.append(deploy);
     }
     list.append(li);
   }
@@ -511,7 +525,8 @@ function renderTasks() {
     const pill = document.createElement('span');
     pill.className = `pill ${shows.cls}`;
     pill.textContent = shows.text;
-    if (shows.title) pill.title = shows.title;
+    // A long custom status is clipped to the column, so the full one stays available on hover.
+    pill.title = shows.title || shows.text;
 
     const taskState = document.createElement('div');
     taskState.className = 'task-state';
@@ -544,6 +559,10 @@ function renderTasks() {
     // Waits a tick so tabbing to the next row's dropdown is seen as still grading, not as done.
     grade.onblur = () => { if (taskRenderDeferred) setTimeout(renderTasks, 0); };
 
+    // Column 3 holds everything that is not the badge or the grade, with the checklist gizmo
+    // leading the title line so the two stay on the same row as the row grows downwards.
+    const rest = document.createElement('div');
+    rest.className = 'task-rest';
     const main = document.createElement('div');
     main.className = 'task-main';
     const title = document.createElement('div');
@@ -584,7 +603,8 @@ function renderTasks() {
 
     li.oncontextmenu = (e) => { e.preventDefault(); openTaskMenu(e, t); };
 
-    li.append(gizmo, taskState, grade, main);
+    rest.append(gizmo, main);
+    li.append(taskState, grade, rest);
     list.append(li);
   }
 }
@@ -1085,6 +1105,9 @@ const pushProject = run(async (id) => {
   const project = state.projects.find((x) => x.id === id);
   if (!project || pushing.has(id)) return;
   pushing.add(id);
+  // The sidebar button reads that set, so repaint it too — otherwise it stays pressable-looking
+  // for the whole push. The `finally` below reloads the projects, which repaints it again.
+  renderProjects();
   if (id === state.projectId) syncPushButton(project);
   try {
     const result = await api('POST', `/api/projects/${id}/push`);
@@ -1126,7 +1149,7 @@ function syncRunProdButton(project) {
 
 function syncDeployButton(project) {
   const button = $('deployProjectBtn');
-  const next = deployButtonState(project, { busy: deployWatching });
+  const next = deployButtonState(project, { busy: project && deployingProjectId === project.id });
   button.disabled = next.disabled;
   button.textContent = next.text;
   button.title = next.title;
@@ -1149,23 +1172,65 @@ function showDeployProgress(status, output, error) {
   log.scrollTop = log.scrollHeight;
 }
 
-let deployWatching = false;
+/**
+ * The project whose deploy the progress popup is following. The sidebar can now start a deploy on
+ * a project that is not the selected one, so the poll below has to watch that project rather than
+ * whatever the board happens to be showing.
+ */
+let deployingProjectId = null;
 
 async function refreshDeployProgress() {
-  if (!state.projectId) return;
-  const snap = await api('GET', `/api/projects/${state.projectId}/deploy`);
+  const watched = deployingProjectId ?? state.projectId;
+  if (!watched) return;
+  const snap = await api('GET', `/api/projects/${watched}/deploy`);
+  const wasDeploying = deployingProjectId;
   if (snap.running) {
-    deployWatching = true;
+    deployingProjectId = watched;
     showDeployProgress('running', snap.output);
-  } else if (deployWatching) {
-    deployWatching = false;
+  } else if (deployingProjectId != null) {
+    deployingProjectId = null;
     const status = snap.status || (snap.error ? 'failed' : 'ok');
     showDeployProgress(status, snap.output, snap.error);
     toast(status === 'ok' ? 'Deployment completed' : (snap.error || 'Deploy failed'), status !== 'ok');
   }
+  // The sidebar button reads that flag, so repaint it only when the flag actually moved.
+  if (wasDeploying !== deployingProjectId) renderProjects();
   const p = state.projects.find((x) => x.id === state.projectId);
   if (p) syncProjectButtons(p);
 }
+
+/**
+ * Deploy one project. Both the sidebar button and the project toolbar land here, so the project
+ * id is passed in rather than read off the current selection.
+ */
+const deployProject = run(async (id) => {
+  const project = state.projects.find((x) => x.id === id);
+  if (!canDeploy(project) || deployingProjectId != null) return;
+  deployingProjectId = id;
+  renderProjects();
+  syncDeployButton(state.projects.find((x) => x.id === state.projectId));
+  showDeployProgress('running', '');
+  try {
+    const started = await api('POST', `/api/projects/${id}/deploy`);
+    if (started.running) {
+      showDeployProgress('running', started.output);
+      return;
+    }
+    deployingProjectId = null;
+    const status = started.status || (started.ok ? 'ok' : 'failed');
+    showDeployProgress(status, started.output, started.error);
+    toast(status === 'ok' ? 'Deployment completed' : (started.error || 'Deploy failed'), status !== 'ok');
+    // The buttons are drawn from the project payload, so refetch before repainting them.
+    await loadProjects();
+    const current = state.projects.find((x) => x.id === state.projectId);
+    if (current) syncProjectButtons(current);
+  } catch (err) {
+    deployingProjectId = null;
+    showDeployProgress('failed', '', err.message);
+    renderProjects();
+    throw err;
+  }
+});
 
 $('runLocalBtn').onclick = run(async () => {
   const p = state.projects.find((x) => x.id === state.projectId);
@@ -1198,30 +1263,9 @@ $('pushProjectBtn').onclick = () => {
   if (state.projectId) pushProject(state.projectId);
 };
 
-$('deployProjectBtn').onclick = run(async () => {
-  const project = state.projects.find((x) => x.id === state.projectId);
-  if (!canDeploy(project)) return;
-  const button = $('deployProjectBtn');
-  button.disabled = true;
-  button.textContent = 'Deploying…';
-  deployWatching = true;
-  showDeployProgress('running', '');
-  try {
-    const started = await api('POST', `/api/projects/${state.projectId}/deploy`);
-    if (started.running) {
-      showDeployProgress('running', started.output);
-    } else {
-      deployWatching = false;
-      const status = started.status || (started.ok ? 'ok' : 'failed');
-      showDeployProgress(status, started.output, started.error);
-      toast(status === 'ok' ? 'Deployment completed' : (started.error || 'Deploy failed'), status !== 'ok');
-    }
-  } catch (err) {
-    deployWatching = false;
-    showDeployProgress('failed', '', err.message);
-    throw err;
-  }
-});
+$('deployProjectBtn').onclick = () => {
+  if (state.projectId) deployProject(state.projectId);
+};
 
 let editingTask = null;
 $('newTaskBtn').onclick = () => {
