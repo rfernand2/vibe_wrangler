@@ -33,10 +33,15 @@ const isolation = new Map();
 const queues = new Map();
 /** taskIds whose agent is working a comment that reopened a closed task. */
 const replying = new Set();
+/**
+ * Accepted by Run but not yet spawned — the worktree is still being made. Counts as running so a
+ * second click cannot start another copy, and so a non-git project queues behind it.
+ */
+const starting = new Map();
 
 function isRunning(taskId) {
   taskId = Number(taskId);
-  return running.has(taskId) || adopted.has(taskId);
+  return running.has(taskId) || adopted.has(taskId) || starting.has(taskId);
 }
 
 function isReplying(taskId) {
@@ -461,13 +466,27 @@ function drainQueue(projectId) {
   try { runTask(next.id, { resume: next.resume, resumeFrom: next.resumeFrom }); } catch { /* gone or already running */ }
 }
 
-function projectBusyUnisolated(projectId) {
+function projectBusyUnisolated(projectId, exceptTaskId) {
   for (const taskId of running.keys()) {
+    if (taskId === exceptTaskId) continue;
     if (isolation.has(taskId)) continue;
     const t = tasks.get(taskId);
     if (t && t.project_id === projectId) return true;
   }
+  // A run that has been accepted but not yet spawned still occupies the directory when it cannot
+  // isolate — otherwise a second click in the same tick would start two agents in one folder.
+  for (const [taskId, pending] of starting) {
+    if (taskId === exceptTaskId) continue;
+    if (pending.isolate) continue;
+    const t = tasks.get(taskId);
+    if (t && t.project_id === projectId) return true;
+  }
   return false;
+}
+
+/** Cheap: can this repo host a task branch? Does not create one. */
+function canIsolate(root) {
+  return git.isRepo(root) && Boolean(git.currentBranch(root));
 }
 
 function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
@@ -490,8 +509,8 @@ function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
     return tasks.get(taskId);
   }
 
-  const iso = openIsolation(taskId, project, root);
-  if (!iso && projectBusyUnisolated(project.id)) {
+  const isolate = canIsolate(root);
+  if (!isolate && projectBusyUnisolated(project.id)) {
     const added = enqueue(project.id, taskId, { resume, resumeFrom });
     // A comment that reopens a closed task should look active at once, even if it has to wait.
     if (resume) tasks.setStatus(taskId, 'active', { resume: true });
@@ -505,6 +524,69 @@ function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
       });
     }
     return tasks.get(taskId);
+  }
+
+  // Checking out a worktree can take several seconds on a large repo. Mark the task active and
+  // answer the click now; the branch and the agent start on the next turn.
+  starting.set(taskId, { resume, resumeFrom, isolate });
+  if (resume) replying.add(taskId);
+  tasks.setStatus(taskId, 'active', { resume });
+  setImmediate(() => beginRun(taskId));
+  return tasks.get(taskId);
+}
+
+function beginRun(taskId) {
+  const pending = starting.get(taskId);
+  if (!pending) return;
+
+  const task = tasks.get(taskId);
+  if (!task) {
+    starting.delete(taskId);
+    return;
+  }
+
+  try {
+    launchRun(task, pending);
+  } catch (err) {
+    starting.delete(taskId);
+    comments.create({
+      task_id: taskId,
+      author: 'system',
+      body: err.message || 'The agent could not start.',
+    });
+    tasks.setStatus(taskId, 'failed');
+  }
+}
+
+function dropIsolation(iso) {
+  if (!iso) return;
+  git.removeWorktree(iso.root, iso.wtPath, iso.branch);
+}
+
+function launchRun(task, pending) {
+  const taskId = task.id;
+  const { resume, resumeFrom } = pending;
+  const project = projects.get(task.project_id);
+  const root = (project.directory || '').trim();
+
+  const iso = openIsolation(taskId, project, root);
+  // Stop may have landed while the worktree was being checked out.
+  if (!starting.has(taskId)) {
+    dropIsolation(iso);
+    return;
+  }
+  if (!iso && projectBusyUnisolated(project.id, taskId)) {
+    starting.delete(taskId);
+    const added = enqueue(project.id, taskId, { resume, resumeFrom });
+    if (!resume) tasks.setStatus(taskId, 'ready');
+    if (added) {
+      comments.create({
+        task_id: taskId,
+        author: 'system',
+        body: 'Another task is running in this project directory. Queued — it will start when that one finishes.',
+      });
+    }
+    return;
   }
 
   const cwd = iso ? iso.wtPath : root;
@@ -525,8 +607,6 @@ function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
   // A comment that reopens a closed task continues that run: keep the checklist and the clock.
   // A fresh Run still starts from a blank checklist, because it is a new attempt.
   if (!resume) checklist.clear(taskId);
-  tasks.setStatus(taskId, 'active', { resume });
-  if (resume) replying.add(taskId);
   tasks.setLogFile(taskId, path.basename(logFile));
   comments.create({
     task_id: taskId,
@@ -583,8 +663,15 @@ function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
     });
   };
 
+  if (!starting.has(taskId)) {
+    isolation.delete(taskId);
+    dropIsolation(iso);
+    log.end();
+    return;
+  }
+
   attempt([]);
-  return tasks.get(taskId);
+  starting.delete(taskId);
 }
 
 /**
@@ -735,6 +822,7 @@ function abandon(taskId, iso, log, why) {
 
 function finish(taskId, status, message, log) {
   running.delete(taskId);
+  starting.delete(taskId);
   isolation.delete(taskId);
   replying.delete(taskId);
   if (message) comments.create({ task_id: taskId, author: 'system', body: message });
@@ -746,6 +834,7 @@ function finish(taskId, status, message, log) {
 
 function stopTask(taskId) {
   taskId = Number(taskId);
+  // The child may already be up while `starting` is still set; prefer the live process.
   const entry = running.get(taskId);
   if (entry) {
     entry.stopping = true;
@@ -754,6 +843,22 @@ function stopTask(taskId) {
     return true;
   }
   if (adopted.has(taskId)) return proc.killTree(adopted.get(taskId).pid);
+  const pending = starting.get(taskId);
+  if (pending) {
+    starting.delete(taskId);
+    if (pending.resume) {
+      replying.delete(taskId);
+      if (pending.resumeFrom) tasks.setStatus(taskId, pending.resumeFrom);
+    } else {
+      tasks.setStatus(taskId, 'ready');
+    }
+    comments.create({
+      task_id: taskId,
+      author: 'system',
+      body: 'Agent run was stopped before it finished.',
+    });
+    return true;
+  }
   for (const [projectId, q] of queues) {
     const i = q.findIndex((e) => e.id === taskId);
     if (i < 0) continue;

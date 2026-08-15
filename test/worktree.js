@@ -65,6 +65,17 @@ async function settle(ids, timeoutMs = 30000) {
   throw new Error(`timed out waiting for tasks ${ids.join(', ')}`);
 }
 
+/** Run answers before the worktree exists; wait for the checkout that follows. */
+async function waitForWorktree(projectId, taskId, timeoutMs = 8000) {
+  const dir = path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${projectId}-task-${taskId}`);
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (fs.existsSync(dir)) return dir;
+    await sleep(25);
+  }
+  throw new Error(`timed out waiting for worktree p${projectId}-task-${taskId}`);
+}
+
 const bodies = (id) => comments.listForTask(id).map((c) => c.body).join('\n');
 /** core.autocrlf rewrites line endings on checkout, which is noise for these assertions. */
 const read = (...p) => fs.readFileSync(path.join(...p), 'utf8').replace(/\r\n/g, '\n');
@@ -76,14 +87,18 @@ async function main() {
   const t1 = tasks.create({ project_id: p1.id, title: 'Task A', description: 'FAKE_APPEND a.txt|from A' });
   const t2 = tasks.create({ project_id: p1.id, title: 'Task B', description: 'FAKE_APPEND b.txt|from B' });
 
-  agent.runTask(t1.id);
+  const first = agent.runTask(t1.id);
+  assert.equal(first.status, 'active');
+  assert.ok(!fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t1.id}`)),
+    'Run answers before the worktree exists');
+  ok('pressing Run marks the task active without waiting on a checkout');
+
   agent.runTask(t2.id);
-  assert.equal(tasks.get(t1.id).status, 'active');
   assert.equal(tasks.get(t2.id).status, 'active');
   ok('two tasks in one repo both go active at once');
 
-  assert.ok(fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t1.id}`)));
-  assert.ok(fs.existsSync(path.join(process.env.VIBE_WRANGLER_WORKTREES, `p${p1.id}-task-${t2.id}`)));
+  await waitForWorktree(p1.id, t1.id);
+  await waitForWorktree(p1.id, t2.id);
   ok('each task gets its own worktree');
 
   assert.ok(tasks.get(t1.id).started_at);

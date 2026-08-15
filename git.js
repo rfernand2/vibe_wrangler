@@ -50,7 +50,12 @@ function pickTaskBranch(dir, base, taskId) {
 
 /** Clears anything a previous crashed run left behind, then creates a fresh branch + worktree. */
 function addWorktree(dir, wtPath, branch, base) {
-  git(dir, ['worktree', 'remove', '--force', wtPath]);
+  // remove + prune walk every worktree; only do that work when this path is already there
+  // or when the first add fails because git still has a stale registration.
+  if (fs.existsSync(wtPath)) git(dir, ['worktree', 'remove', '--force', wtPath]);
+  if (branchExists(dir, branch)) git(dir, ['branch', '-D', branch]);
+  const added = git(dir, ['worktree', 'add', '--quiet', wtPath, '-b', branch, base]);
+  if (added.ok) return added;
   git(dir, ['worktree', 'prune']);
   if (branchExists(dir, branch)) git(dir, ['branch', '-D', branch]);
   return git(dir, ['worktree', 'add', '--quiet', wtPath, '-b', branch, base]);

@@ -84,6 +84,14 @@ async function main() {
     'independent switch lookups run concurrently');
   ok('keeps project switching on the fast cached path');
 
+  const saveTask = /\$\('taskForm'\)\.addEventListener\('submit', run\(async \(e\) => \{([\s\S]*?)\n\}\)\);/.exec(appScript)?.[1] || '';
+  assert.doesNotMatch(saveTask, /loadProjects\(\)/,
+    'saving a task must not wait for repository and listening-port checks');
+  const startTaskFn = /async function startTask\(task\) \{([\s\S]*?)\n\}/.exec(appScript)?.[1] || '';
+  assert.doesNotMatch(startTaskFn, /loadProjects\(\)/,
+    'starting a run must not wait for repository and listening-port checks');
+  ok('keeps adding a task and starting a run off the slow project refresh');
+
   let submitted = 0;
   const form = { requestSubmit() { submitted++; } };
   const key = (overrides = {}) => ({

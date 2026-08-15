@@ -1265,7 +1265,8 @@ $('taskForm').addEventListener('submit', run(async (e) => {
   };
   if (editingTask) await api('PUT', `/api/tasks/${editingTask.id}`, payload);
   else await api('POST', `/api/projects/${state.projectId}/tasks`, payload);
-  await loadProjects();
+  // Project counts and git badges refresh from the change stream. Waiting on those
+  // checks here is what made Save feel like it hung for several seconds.
   await loadTasks();
   if (state.task) await refreshTask();
   toast('Task saved');
@@ -1287,7 +1288,7 @@ async function startTask(task) {
     state.task = started;
     renderTask();
   }
-  await loadProjects();
+  // The sidebar's repository and port checks are not needed to show this task as active.
   await loadTasks();
   // Run does not always mean an agent is now working: a project that cannot be isolated runs its
   // tasks one at a time, and a directory that has gone missing fails on the spot. Say which it was,
