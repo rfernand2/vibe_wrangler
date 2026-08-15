@@ -11,6 +11,7 @@ const { handleCommentKeydown } = require('../public/comment-keys');
 const {
   shouldShowDeployBadge, deployButtonState, shouldCloseDeployDialog,
 } = require('../public/deploy-ui');
+const { shouldShowPushBadge, pushBadgeTitle } = require('../public/push-ui');
 const { performanceSeries } = require('../public/performance-chart');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
@@ -18,6 +19,8 @@ process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
 process.env.VIBE_WRANGLER_LOGS = path.join(tmp, 'logs');
 process.env.VIBE_WRANGLER_ATTACHMENTS = path.join(tmp, 'attachments');
 process.env.PORT = '38111';
+// The board caches each project's git state for a few seconds; these tests want what git says now.
+process.env.VIBE_WRANGLER_GIT_TTL_MS = '0';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
 process.env.GROK_BIN = 'definitely-not-a-real-binary';
 // So writing a Grok model alias in a test never touches the real ~/.grok/config.toml.
@@ -64,6 +67,7 @@ async function main() {
   assert.match(index.body, /Deployment/);
   assert.match(index.body, /id="deployProjectBtn"/);
   assert.match(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
+  assert.match(index.body, /src="\/push-ui\.js"/);
   assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="deployProjectBtn"/);
   ok('serves the front end');
 
@@ -254,6 +258,67 @@ async function main() {
   assert.equal(local.hasFlyConfig(localDir), true);
   assert.equal(local.hasFlyConfig(workdir), false);
   ok('reads the local port and fly URL from the project directory');
+
+  // --- push needed ---
+  const gitRun = (cwd, ...args) => {
+    const r = require('node:child_process').spawnSync('git', args, { cwd, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr || r.error?.message}`);
+    return r.stdout.trim();
+  };
+  const gitDir = path.join(tmp, 'git-app');
+  fs.mkdirSync(gitDir);
+  assert.deepEqual(local.localWork(gitDir), { is_repo: false, has_remote: false, uncommitted: 0, unpushed: 0 });
+  gitRun(gitDir, 'init', '--quiet', '--initial-branch=main');
+  gitRun(gitDir, 'config', 'user.name', 'test');
+  gitRun(gitDir, 'config', 'user.email', 'test@localhost');
+  fs.writeFileSync(path.join(gitDir, 'a.txt'), 'one\n');
+  assert.equal(local.localWork(gitDir).uncommitted, 1, 'an untracked file counts as uncommitted');
+  gitRun(gitDir, 'add', '-A');
+  gitRun(gitDir, 'commit', '--quiet', '-m', 'initial');
+  // Nothing to push to yet, so a clean repo with no remote is not waiting on anything.
+  assert.deepEqual(local.localWork(gitDir), { is_repo: true, has_remote: false, uncommitted: 0, unpushed: 0 });
+
+  const gitRemote = path.join(tmp, 'git-app-remote.git');
+  gitRun(gitDir, 'clone', '--bare', '--quiet', gitDir, gitRemote);
+  gitRun(gitDir, 'remote', 'add', 'origin', gitRemote);
+  gitRun(gitDir, 'push', '-u', '--quiet', 'origin', 'main');
+  assert.deepEqual(local.localWork(gitDir), { is_repo: true, has_remote: true, uncommitted: 0, unpushed: 0 });
+
+  fs.writeFileSync(path.join(gitDir, 'a.txt'), 'two\n');
+  const dirty = local.localWork(gitDir);
+  assert.equal(dirty.uncommitted, 1);
+  assert.equal(dirty.unpushed, 0);
+  gitRun(gitDir, 'commit', '--quiet', '-am', 'second');
+  const ahead = local.localWork(gitDir);
+  assert.equal(ahead.uncommitted, 0);
+  assert.equal(ahead.unpushed, 1, 'a commit that never reached the remote is still owed');
+  gitRun(gitDir, 'push', '--quiet', 'origin', 'main');
+  assert.equal(local.localWork(gitDir).unpushed, 0);
+  ok('counts uncommitted files and commits that never reached GitHub');
+
+  const gitProj = (await call('POST', '/api/projects', { name: 'Git app', directory: gitDir })).body;
+  assert.equal(gitProj.needs_push, false);
+  fs.writeFileSync(path.join(gitDir, 'b.txt'), 'new\n');
+  const needsPush = (await call('GET', `/api/projects/${gitProj.id}`)).body;
+  assert.equal(needsPush.needs_push, true);
+  assert.equal(needsPush.uncommitted_changes, 1);
+  assert.equal((await call('GET', '/api/projects')).body.find((p) => p.id === gitProj.id).needs_push, true);
+  await call('DELETE', `/api/projects/${gitProj.id}`);
+  // A project folder that is not a repo at all must never claim work is waiting.
+  assert.equal((await call('GET', `/api/projects/${proj.id}`)).body.needs_push, false);
+  ok('the project payload says when local work has not been committed or pushed');
+
+  assert.equal(shouldShowPushBadge({ needs_push: false, uncommitted_changes: 0, unpushed_commits: 0 }), false);
+  assert.equal(shouldShowPushBadge(null), false);
+  assert.equal(shouldShowPushBadge({ needs_push: true, uncommitted_changes: 2, unpushed_commits: 0 }), true);
+  assert.equal(shouldShowPushBadge({ unpushed_commits: 3 }), true);
+  assert.equal(pushBadgeTitle({ uncommitted_changes: 1, unpushed_commits: 0 }),
+    'Push needed — 1 file not committed');
+  assert.equal(pushBadgeTitle({ uncommitted_changes: 2, unpushed_commits: 3 }),
+    'Push needed — 2 files not committed, 3 commits not pushed to GitHub');
+  assert.equal(pushBadgeTitle({ unpushed_commits: 1 }), 'Push needed — 1 commit not pushed to GitHub');
+  assert.equal(pushBadgeTitle({ needs_push: true }), 'Push needed');
+  ok('the Push needed badge shows only for real local work, and says what is outstanding');
 
   const localProj = (await call('POST', '/api/projects', {
     name: 'Local app', directory: localDir,

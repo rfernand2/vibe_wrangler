@@ -409,9 +409,9 @@ server.js          HTTP server + JSON API
 db.js              SQLite schema and queries
 agent.js           Spawns the agent CLI and turns its output into comments and checklist ticks
 harnesses.js       Harness catalogue: how each agent CLI is launched, set up, and how its events are read
-git.js             Worktree / branch / merge plumbing for concurrent tasks
+git.js             Worktree / branch / merge plumbing for concurrent tasks, and what a checkout still owes GitHub
 proc.js            Liveness, identity and tree-kill for agent processes
-local.js           Starts and stops a project's local instance, and finds its fly URL
+local.js           Starts and stops a project's local instance, finds its fly URL, and reads its git state
 events.js          Server-sent change notifications that keep open tabs current
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database

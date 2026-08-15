@@ -5,9 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const proc = require('./proc');
 const events = require('./events');
+const git = require('./git');
 
 const IS_WIN = process.platform === 'win32';
 const OWN_PORT = Number(process.env.PORT || 3000);
+// Two git calls per project on every repaint is a lot of spawning; a few seconds stale is fine.
+const GIT_TTL_MS = Number(process.env.VIBE_WRANGLER_GIT_TTL_MS ?? 3000);
 
 function readIfExists(file) {
   try {
@@ -113,8 +116,21 @@ function listeners(port) {
   return (r.stdout || '').trim().split(/\s+/).map(Number).filter((n) => n > 0);
 }
 
+const workCache = new Map();
+
+/** git.localWork behind a short cache, so listing projects does not spawn git over and over. */
+function localWork(directory) {
+  if (!directory) return git.localWork(null);
+  const hit = workCache.get(directory);
+  if (hit && Date.now() - hit.at < GIT_TTL_MS) return hit.value;
+  const value = git.localWork(directory);
+  workCache.set(directory, { at: Date.now(), value });
+  return value;
+}
+
 function status(project, ports = listeningPorts()) {
   const port = readPort(project?.directory);
+  const work = localWork(project?.directory);
   // The board itself occupies PORT. A project that happens to name the same number is not "its"
   // instance — treating it as running would offer Stop local for our own process.
   const running = Boolean(port && port !== OWN_PORT && portInUse(port, ports));
@@ -124,6 +140,10 @@ function status(project, ports = listeningPorts()) {
     local_url: port ? `http://localhost:${port}` : null,
     prod_url: readProdUrl(project?.directory),
     can_deploy: hasFlyConfig(project?.directory),
+    uncommitted_changes: work.uncommitted,
+    unpushed_commits: work.unpushed,
+    // Work that only exists on this machine — either never committed, or committed but not pushed.
+    needs_push: work.uncommitted > 0 || work.unpushed > 0,
   };
 }
 
@@ -207,6 +227,7 @@ module.exports = {
   readPort,
   readProdUrl,
   hasFlyConfig,
+  localWork,
   portInUse,
   listeningPorts,
   status,

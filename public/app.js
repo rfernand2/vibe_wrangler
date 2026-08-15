@@ -267,6 +267,13 @@ async function loadProjects() {
       deployNeeded.title = 'Deployment needed';
       name.append(' ', deployNeeded);
     }
+    if (shouldShowPushBadge(p)) {
+      const pushNeeded = document.createElement('span');
+      pushNeeded.className = 'push-needed';
+      pushNeeded.textContent = 'Push needed';
+      pushNeeded.title = pushBadgeTitle(p);
+      name.append(' ', pushNeeded);
+    }
     const count = document.createElement('span');
     count.className = 'pcount';
     count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +

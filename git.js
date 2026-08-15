@@ -133,8 +133,32 @@ function push(dir, remote, branch) {
   return git(dir, ['push', '-u', '--quiet', remote, branch]);
 }
 
+/**
+ * What this checkout still owes GitHub: files changed but never committed, and commits that sit
+ * on no remote branch. Refs only, never the network, so the board can ask as often as it repaints.
+ */
+function localWork(dir, remote = 'origin') {
+  if (!dir || !isRepo(dir)) return { is_repo: false, has_remote: false, uncommitted: 0, unpushed: 0 };
+  const status = git(dir, ['status', '--porcelain']);
+  const uncommitted = status.out ? status.out.split(/\r?\n/).filter(Boolean).length : 0;
+  // With no remote there is nowhere to push to, so unpushed commits are not a thing to count.
+  const remoteExists = hasRemote(dir, remote);
+  // Measured against every ref of the remote rather than just this branch's upstream: a branch
+  // that was never pushed would otherwise report its whole shared history as unpushed work.
+  const ahead = remoteExists
+    ? git(dir, ['rev-list', '--count', 'HEAD', '--not', `--remotes=${remote}`])
+    : null;
+  return {
+    is_repo: true,
+    has_remote: remoteExists,
+    uncommitted,
+    // No commits yet (or an unreadable HEAD) means nothing is waiting to go out.
+    unpushed: ahead?.ok ? Number(ahead.out) || 0 : 0,
+  };
+}
+
 module.exports = {
   git, isRepo, currentBranch, branchExists, pickTaskBranch, addWorktree, removeWorktree,
   isDirty, commitAll, mergeBaseIn, conflictedFiles, stillConflicted, abortMerge, fastForward, shortLog,
-  headSha, hasRemote, remoteSha, push,
+  headSha, hasRemote, remoteSha, push, localWork,
 };
