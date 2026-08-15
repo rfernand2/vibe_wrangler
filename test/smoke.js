@@ -9,10 +9,10 @@ const assert = require('node:assert');
 const { taskAgent, agentName } = require('../public/task-agent');
 const { handleCommentKeydown } = require('../public/comment-keys');
 const {
-  shouldShowDeployBadge, deployButtonState, shouldCloseDeployDialog,
+  shouldShowDeployBadge, deployButtonState, sidebarDeployButtonState, shouldCloseDeployDialog,
 } = require('../public/deploy-ui');
 const {
-  shouldShowPushBadge, pushBadgeTitle, pushButtonState, pushResultMessage,
+  shouldShowPushBadge, pushBadgeTitle, pushButtonState, sidebarPushButtonState, pushResultMessage,
 } = require('../public/push-ui');
 const { performanceSeries } = require('../public/performance-chart');
 
@@ -264,6 +264,28 @@ async function main() {
   assert.equal(shouldCloseDeployDialog('running'), false);
   ok('hides Deploy without fly.toml and closes the popup after a successful deploy');
 
+  // --- the sidebar column is one button wide, so the count moves into the tooltip ---
+  const sidebarDeploy = sidebarDeployButtonState(due);
+  assert.equal(sidebarDeploy.text, 'Deploy');
+  assert.equal(sidebarDeploy.disabled, false);
+  assert.match(sidebarDeploy.title, /2 pushes waiting to be deployed — deploy this project now/);
+  assert.match(sidebarDeployButtonState({ can_deploy: true, pending_pushes: 1 }).title, /^1 push waiting/);
+  assert.equal(sidebarDeployButtonState(idle).title, 'Deploy this project');
+  const busyDeploy = sidebarDeployButtonState(due, { busy: true });
+  assert.equal(busyDeploy.text, 'Deploying…');
+  assert.equal(busyDeploy.disabled, true, 'a deploy already running cannot be started again');
+  ok('the sidebar Deploy button is a verb, with the pending pushes in its tooltip');
+
+  // Only one deploy runs at a time, so every other row's button has to say why it is down rather
+  // than look pressable and quietly do nothing.
+  const blockedDeploy = sidebarDeployButtonState(due, { blocked: true });
+  assert.equal(blockedDeploy.disabled, true, 'a second project cannot deploy alongside the first');
+  assert.equal(blockedDeploy.text, 'Deploy');
+  assert.equal(blockedDeploy.title, 'Another project is deploying');
+  // The project actually deploying still reads as the busy one, not as the blocked one.
+  assert.equal(sidebarDeployButtonState(due, { busy: true, blocked: true }).text, 'Deploying…');
+  ok('a project cannot be deployed while another deploy is still running');
+
   const local = require('../local');
   const localDir = path.join(tmp, 'local-app');
   fs.mkdirSync(localDir);
@@ -361,6 +383,16 @@ async function main() {
     'Committed 1 change, no remote to push to');
   assert.equal(pushResultMessage({ has_remote: true }), 'Nothing to commit or push');
   ok('the Push needed button says what it will do, and what it did');
+
+  // --- the sidebar shows this button only when it has work, so its label is just the verb ---
+  const sidebarPush = sidebarPushButtonState({ is_repo: true, uncommitted_changes: 2, unpushed_commits: 1 });
+  assert.equal(sidebarPush.text, 'Push');
+  assert.equal(sidebarPush.disabled, false);
+  assert.match(sidebarPush.title, /2 files not committed, 1 commit not pushed to GitHub — commit and push everything now/);
+  const sidebarBusy = sidebarPushButtonState({ is_repo: true, uncommitted_changes: 2 }, { busy: true });
+  assert.equal(sidebarBusy.text, 'Pushing…');
+  assert.equal(sidebarBusy.disabled, true);
+  ok('the sidebar Push button is a verb, with what is outstanding in its tooltip');
 
   const pushProj = (await call('POST', '/api/projects', { name: 'Push app', directory: gitDir })).body;
   assert.equal(pushProj.is_repo, true);

@@ -133,7 +133,19 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .all-tasks-btn:hover { background: var(--panel-2); }
 .all-tasks-btn.selected { background: var(--panel-2); border-color: var(--accent); }
 
-.project-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+/* Three columns: the project (name over its counts), then Push, then Deploy. The grid lives on the
+   list rather than on each row so the buttons line up down the sidebar even though a row only
+   draws the ones it needs; each row's items are placed in their own column by hand below. */
+.project-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+}
+.project-list li { display: contents; }
 .project-list button {
   width: 100%;
   text-align: left;
@@ -147,39 +159,42 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 }
 .project-list button:hover { background: var(--panel-2); }
 .project-list button.selected { background: var(--panel-2); border-color: var(--accent); }
-.pname { display: block; font-weight: 600; }
-.pcount { display: block; font-size: 12px; color: var(--muted); }
-/* One shape for every "this project needs something" badge; each kind only sets its colour. */
-.deploy-needed,
-.push-needed {
-  display: inline-block;
-  margin-left: 5px;
-  padding: 1px 5px;
+.project-list .project-btn { grid-column: 1; min-width: 0; }
+.pname { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Both rows clip rather than wrap: the two button columns leave this one narrow, and a project
+   whose counts wrapped would make its row taller than every other row in the list. */
+.pcount { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* One shape for every "this project needs something" button; each kind only sets its colour.
+   Both are real buttons, so they sit beside the project rather than inside it — a button cannot
+   legally contain another one, and pressing either must act rather than select the project. */
+.project-list button.row-btn {
+  width: auto;
+  align-self: center;
+  padding: 3px 7px;
   border: 1px solid;
   border-radius: 4px;
   font-size: 10px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.4;
   text-transform: uppercase;
-  vertical-align: 1px;
   white-space: nowrap;
 }
-.deploy-needed { border-color: #9a6a27; color: #f1bd70; }
-.push-needed { border-color: #2f6a8f; color: #7fc4ea; background: rgba(47, 106, 143, .22); }
-
-/* The push badge is a real button, so it sits beside the project rather than inside it — a button
-   cannot legally contain another one, and clicking it must push rather than select the project. */
-.project-list li { display: flex; align-items: center; gap: 4px; }
-.project-list .project-btn { flex: 1; min-width: 0; }
+.project-list button.row-btn:disabled { cursor: default; opacity: .6; }
 .project-list button.push-needed {
-  width: auto;
-  flex: 0 0 auto;
-  padding: 3px 6px;
-  margin: 0;
+  grid-column: 2;
   border-color: #2f6a8f;
+  color: #7fc4ea;
+  background: rgba(47, 106, 143, .22);
 }
-.project-list button.push-needed:hover { background: rgba(47, 106, 143, .42); }
-.project-list button.push-needed:disabled { cursor: default; opacity: .6; }
+.project-list button.push-needed:hover:not(:disabled) { background: rgba(47, 106, 143, .42); }
+.project-list button.deploy-needed {
+  grid-column: 3;
+  border-color: #9a6a27;
+  color: #f1bd70;
+  background: rgba(154, 106, 39, .22);
+}
+.project-list button.deploy-needed:hover:not(:disabled) { background: rgba(154, 106, 39, .42); }
 
 .content { flex: 1; padding: 18px 22px; min-width: 0; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }
@@ -223,11 +238,15 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 
 /* ---------- Tasks ---------- */
 .task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+/* Three columns: the status badge over the model name, the grade, then everything else. The first
+   two are fixed widths so every row's title starts on the same edge however long its status or
+   model name is; only the third column takes up the slack. */
 .task-item {
-  display: flex;
-  /* Rows grow downwards when a checklist is expanded, so pin the pill to the title line. */
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 104px 64px minmax(0, 1fr);
+  /* Rows grow downwards when a checklist is expanded, so pin the badge to the title line. */
+  align-items: start;
+  column-gap: 12px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -242,14 +261,15 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 /* Keeps rows without a checklist aligned with rows that have one. */
 .disclosure-gap { flex: 0 0 auto; width: 30px; }
 .task-state {
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  min-width: 0;
 }
+/* Model names are longer than this column, so they lose their tail rather than widen the row. */
 .task-agent {
-  max-width: 92px;
+  max-width: 100%;
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;
@@ -257,6 +277,8 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The third column carries the checklist gizmo alongside the task itself. */
+.task-rest { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .task-main { flex: 1; min-width: 0; }
 .task-title { font-weight: 600; }
 .task-number { margin-right: 7px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -264,6 +286,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 
 .pill {
   display: inline-block;
+  max-width: 100%;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -272,12 +295,14 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Reads like the status pill beside it, but it is a control: solid at rest, editable in place. */
 .grade-select {
-  flex: 0 0 auto;
-  width: 64px;
+  /* Fills its own column of the row grid, so the width lives in one place. */
+  width: 100%;
   padding: 1px 2px 1px 6px;
   font-size: 11px;
   letter-spacing: .06em;
