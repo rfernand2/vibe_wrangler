@@ -252,10 +252,8 @@ const HARNESSES = [
     ],
     env(env, provider) {
       if (!provider?.register) {
-        // Native xAI: force the Grok subscription login. An inherited API key would bill per token.
-        delete env.XAI_API_KEY;
-        delete env.GROK_API_KEY;
-        delete env.XAI_API_TOKEN;
+        // Native Grok on this machine is the xAI API key. The CLI only knows config
+        // aliases without it, so grok-4.6 becomes "unknown model id".
         return;
       }
       // The alias names one variable, so a key kept under any of the other spellings is copied to it

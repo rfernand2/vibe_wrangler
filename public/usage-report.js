@@ -8,31 +8,35 @@ function formatTokens(n) {
 }
 
 function formatUsd(n) {
-  if (n == null || !Number.isFinite(Number(n))) return '—';
+  if (n == null || !Number.isFinite(Number(n))) return '-';
   const v = Number(n);
   if (v === 0) return '$0';
   if (Math.abs(v) < 0.01) return '$' + v.toFixed(4);
   return '$' + v.toFixed(2);
 }
 
+function providerLabel(provider) {
+  if (!provider || provider === 'native') return 'Native';
+  if (provider === 'openrouter') return 'OpenRouter';
+  if (provider === 'ollama') return 'Ollama';
+  return provider;
+}
+
 function modelLabel(row) {
-  const name = row.model || 'unknown';
-  if (!row.harness && !row.provider) return name;
-  const bits = [row.harness, row.provider && row.provider !== 'native' ? row.provider : null]
-    .filter(Boolean);
-  return bits.length ? name + ' · ' + bits.join(' / ') : name;
+  return row.model || 'unknown';
 }
 
 function usageTable(pack) {
   const table = document.createElement('table');
   table.className = 'usage-table';
   table.innerHTML = `<thead><tr>
-    <th>Model</th><th>Tasks</th><th>In</th><th>Cached</th><th>Out</th><th>Cost</th>
+    <th>Model</th><th>Provider</th><th>Tasks</th><th>In</th><th>Cached</th><th>Out</th><th>Cost</th>
   </tr></thead><tbody></tbody><tfoot></tfoot>`;
   const body = table.querySelector('tbody');
   for (const row of pack.models) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${escapeHtml(modelLabel(row))}</td>
+      <td>${escapeHtml(providerLabel(row.provider))}</td>
       <td>${row.tasks}</td>
       <td>${formatTokens(row.input_tokens)}</td>
       <td>${formatTokens(row.cached_tokens)}</td>
@@ -43,6 +47,7 @@ function usageTable(pack) {
   const t = pack.totals;
   table.querySelector('tfoot').innerHTML = `<tr>
     <td>Total</td>
+    <td></td>
     <td>${t.tasks}</td>
     <td>${formatTokens(t.input_tokens)}</td>
     <td>${formatTokens(t.cached_tokens)}</td>
@@ -65,7 +70,7 @@ function renderUsageReport(report, root, tab) {
     const empty = document.createElement('div');
     empty.className = 'empty chart-empty';
     empty.textContent = tab === 'api'
-      ? 'No metered API usage yet. OpenRouter runs will show up here.'
+      ? 'No metered API usage yet. Grok native, OpenRouter, and Ollama runs show up here.'
       : 'No subscription usage yet. New runs, and any old logs that recorded tokens, appear here.';
     root.appendChild(empty);
     return;
@@ -74,5 +79,5 @@ function renderUsageReport(report, root, tab) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { formatTokens, formatUsd, modelLabel, renderUsageReport };
+  module.exports = { formatTokens, formatUsd, modelLabel, providerLabel, renderUsageReport };
 }

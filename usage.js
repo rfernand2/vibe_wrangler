@@ -19,8 +19,10 @@ const PRICES = {
   'gpt-5.6-luna': { in: 0.2, cached: 0.02, out: 1.2 },
 };
 
-function channelFor(provider) {
+function channelFor(provider, harness) {
   if (provider === 'openrouter' || provider === 'ollama') return 'api';
+  // Grok Build's native path is the xAI API key, not a flat login.
+  if (harness === 'grok') return 'api';
   return 'subscription';
 }
 
@@ -154,7 +156,7 @@ function finishRow(row, { model, harness, provider }) {
     model: id,
     harness: harness || null,
     provider: provider || 'native',
-    channel: channelFor(provider || 'native'),
+    channel: channelFor(provider || 'native', harness),
     input: row.input,
     cached: row.cached,
     output: row.output,
