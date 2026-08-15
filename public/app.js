@@ -154,6 +154,17 @@ function statusClass(s) {
   return ['ready', 'active', 'completed', 'failed'].includes(s) ? s : '';
 }
 
+/**
+ * A task waiting its turn is still `ready` in the database — it has no status of its own to take,
+ * because nothing has happened to it yet. The pill says so anyway: Run was pressed, and a row that
+ * still reads "ready" looks like the press was lost.
+ */
+function pillFor(t) {
+  return t.queued
+    ? { text: 'queued', cls: 'queued', title: 'Waiting for the task running in this project directory to finish' }
+    : { text: t.status, cls: statusClass(t.status), title: '' };
+}
+
 /** SQLite hands back naive UTC ("2026-08-09 14:03:11"), so pin the zone before parsing. */
 function parseTs(ts) {
   if (!ts) return null;
@@ -479,9 +490,11 @@ function renderTasks() {
       gizmo.className = 'disclosure-gap';
     }
 
+    const shows = pillFor(t);
     const pill = document.createElement('span');
-    pill.className = `pill ${statusClass(t.status)}`;
-    pill.textContent = t.status;
+    pill.className = `pill ${shows.cls}`;
+    pill.textContent = shows.text;
+    if (shows.title) pill.title = shows.title;
 
     const taskState = document.createElement('div');
     taskState.className = 'task-state';
@@ -598,7 +611,8 @@ function openTaskMenu(e, task) {
   menu.replaceChildren();
   closeTagMenu();
 
-  const busy = task.status === 'active';
+  // A queued task offers Stop, which takes it back out of the queue.
+  const busy = task.status === 'active' || task.queued;
   menu.append(menuCommand(busy ? 'Stop' : 'Run', run(async () => {
     closeTaskMenu();
     await (busy ? haltTask(task) : startTask(task));
@@ -829,8 +843,10 @@ function closeDrawer() {
 function renderTask() {
   const t = state.task;
   if (!t) return;
-  $('detailStatus').className = `pill ${statusClass(t.status)}`;
-  $('detailStatus').textContent = t.status;
+  const shows = pillFor(t);
+  $('detailStatus').className = `pill ${shows.cls}`;
+  $('detailStatus').textContent = shows.text;
+  $('detailStatus').title = shows.title;
   const detailNum = document.createElement('span');
   detailNum.className = 'task-number';
   detailNum.textContent = `#${t.number}`;
@@ -866,7 +882,9 @@ function renderTask() {
     tagRow.append(chip);
   }
 
-  const busy = t.status === 'active';
+  // Stop takes a task out of the queue as well as off an agent, so a waiting task offers Stop too —
+  // otherwise the only button on offer is the Run that has already been pressed.
+  const busy = t.status === 'active' || t.queued;
   $('detailRunBtn').hidden = busy;
   $('detailRunBtn').disabled = t.status === 'completed' && false;
   $('detailStopBtn').hidden = !busy;
@@ -1217,15 +1235,27 @@ async function startTask(task) {
   }
   await loadProjects();
   await loadTasks();
-  toast('Agent started');
+  // Run does not always mean an agent is now working: a project that cannot be isolated runs its
+  // tasks one at a time, and a directory that has gone missing fails on the spot. Say which it was,
+  // since "Agent started" over a row that has not moved reads as the app losing the click.
+  if (started.queued) toast('Queued — another task is using this project directory');
+  else if (started.status === 'failed') toast(lastSystemNote(started) || 'The agent could not start', true);
+  else toast('Agent started');
+}
+
+/** The reason a run refused to start is written to the task as a system comment. */
+function lastSystemNote(task) {
+  const notes = (task.comments || []).filter((c) => c.author === 'system');
+  return notes.length ? notes[notes.length - 1].body : '';
 }
 $('detailRunBtn').onclick = run(() => startTask(state.task));
 
 async function haltTask(task) {
+  const wasQueued = task.queued;
   await api('POST', `/api/tasks/${task.id}/stop`);
   if (state.task?.id === task.id) await refreshTask();
   else await loadTasks();
-  toast('Stopping agent');
+  toast(wasQueued ? 'Taken out of the queue' : 'Stopping agent');
 }
 $('detailStopBtn').onclick = run(() => haltTask(state.task));
 

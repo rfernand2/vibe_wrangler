@@ -10,6 +10,8 @@
   --active: #4cc9f0;
   --completed: #4ade80;
   --failed: #f87171;
+  /* Waiting its turn: reads as "something is pending" without competing with the active teal. */
+  --queued: #c084fc;
   --danger: #ef4444;
   /* Comment authors: distinct hues so a glance down the thread separates the voices. */
   --author-agent: #4cc9f0;
@@ -274,6 +276,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .pill.active { color: var(--active); border-color: #1d5c72; background: #10262e; }
 .pill.completed { color: var(--completed); border-color: #1f6b3f; background: #0f2a1c; }
 .pill.failed { color: var(--failed); border-color: #7a2c2c; background: #2c1414; }
+.pill.queued { color: var(--queued); border-color: #553a75; background: #221830; }
 
 /* ---------- Checklists ---------- */
 .checklist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }

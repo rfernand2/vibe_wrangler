@@ -76,11 +76,18 @@ function serveAttachment(res, pathname) {
   });
 }
 
+/** The board reads status straight off the row, so waiting-to-start has to be sent alongside it. */
+function withQueue(list) {
+  return list.map((t) => (agent.isQueued(t.id) ? { ...t, queued: true } : t));
+}
+
 function withComments(task) {
   return {
     ...task,
     comments: comments.listForTask(task.id),
     running: agent.isRunning(task.id),
+    // Run was pressed, but another task holds this project's directory. Not started, not idle.
+    queued: agent.isQueued(task.id),
     // A closed task with an agent on it is one that a comment just reopened.
     replying: agent.isReplying(task.id),
     chats: agent.canChat(task),
@@ -214,11 +221,11 @@ async function api(req, res, url) {
 
       if (c === 'tasks') {
         if (method === 'GET') {
-          return json(res, 200, tasks.list({
+          return json(res, 200, withQueue(tasks.list({
             projectId: id,
             status: url.searchParams.get('status') || null,
             tag: url.searchParams.get('tag') || null,
-          }));
+          })));
         }
         if (method === 'POST') {
           if (!projects.get(id)) return json(res, 404, { error: 'Project not found' });
@@ -303,10 +310,10 @@ async function api(req, res, url) {
   // /api/tasks...
   if (a === 'tasks') {
     if (!b && method === 'GET') {
-      return json(res, 200, tasks.list({
+      return json(res, 200, withQueue(tasks.list({
         status: url.searchParams.get('status') || null,
         tag: url.searchParams.get('tag') || null,
-      }));
+      })));
     }
     const id = Number(b);
     if (!Number.isInteger(id)) return json(res, 400, { error: 'Invalid task id' });

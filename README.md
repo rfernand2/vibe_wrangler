@@ -267,7 +267,9 @@ If any of that fails, the task is marked `failed` and a comment tells you which 
 still holds the work — nothing is ever thrown away.
 
 Projects that **aren't** git repos have nowhere to isolate to, so their tasks are queued and run one at
-a time instead.
+a time instead. A task waiting its turn shows a `queued` pill on the board and offers Stop, which takes
+it back out of the queue. The queue is held in memory, so restarting the app clears it — anything still
+waiting has to be run again.
 
 ## Surviving a restart
 

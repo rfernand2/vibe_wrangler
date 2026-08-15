@@ -109,6 +109,15 @@ function buildPrompt(task, project, history, iso, plan, { resumeFrom } = {}) {
     'the human has context you do not and will take it from there.',
     'The same bound applies to any dead end. Two or three attempts, then report and finish.',
     '',
+    '## Stopping something you started',
+    'You are not alone on this machine. Other agents, the editor, and the queue that dispatched you are',
+    'all running as node processes, so anything that matches by image name takes them down with it.',
+    'Never run `taskkill /IM node.exe`, `Get-Process node | Stop-Process`, `pkill node` or `killall node`.',
+    'To stop a server you started, resolve the one process holding its port and stop only that:',
+    '  netstat -ano | findstr :<port>   then   taskkill /PID <pid> /F      (Windows)',
+    '  kill $(lsof -ti :<port>)                                            (macOS/Linux)',
+    'The same rule covers python, ruby, and anything else the machine may be running several of.',
+    '',
     '## Project',
     `Name: ${project.name}`,
   ];
@@ -425,13 +434,23 @@ function openIsolation(taskId, project, root) {
 }
 
 /** Another task holds the project directory, and without git we have nowhere else to work. */
+/** True when this call is what put the task in the queue, so a second Run does not re-announce it. */
 function enqueue(projectId, taskId, opts = {}) {
   const q = queues.get(projectId) || [];
-  if (!q.some((e) => e.id === taskId)) {
+  const already = q.some((e) => e.id === taskId);
+  if (!already) {
     q.push({ id: taskId, resume: Boolean(opts.resume), resumeFrom: opts.resumeFrom || null });
     if (opts.resume) replying.add(taskId);
   }
   queues.set(projectId, q);
+  return !already;
+}
+
+/** Waiting on another task in the same directory. In memory only — a restart drops the queue. */
+function isQueued(taskId) {
+  taskId = Number(taskId);
+  for (const q of queues.values()) if (q.some((e) => e.id === taskId)) return true;
+  return false;
 }
 
 function drainQueue(projectId) {
@@ -473,14 +492,18 @@ function runTask(taskId, { resume = false, resumeFrom = null } = {}) {
 
   const iso = openIsolation(taskId, project, root);
   if (!iso && projectBusyUnisolated(project.id)) {
-    enqueue(project.id, taskId, { resume, resumeFrom });
+    const added = enqueue(project.id, taskId, { resume, resumeFrom });
     // A comment that reopens a closed task should look active at once, even if it has to wait.
     if (resume) tasks.setStatus(taskId, 'active', { resume: true });
-    comments.create({
-      task_id: taskId,
-      author: 'system',
-      body: 'Another task is running in this project directory. Queued — it will start when that one finishes.',
-    });
+    // Only on the way in: pressing Run again on a task already waiting should not stack up notes
+    // saying the same thing.
+    if (added) {
+      comments.create({
+        task_id: taskId,
+        author: 'system',
+        body: 'Another task is running in this project directory. Queued — it will start when that one finishes.',
+      });
+    }
     return tasks.get(taskId);
   }
 
@@ -901,7 +924,7 @@ function readLog(taskId) {
 }
 
 module.exports = {
-  runTask, stopTask, runReady, runFailed, isRunning, readLog,
+  runTask, stopTask, runReady, runFailed, isRunning, isQueued, readLog,
   reply, canChat, isReplying, CHAT_STATUSES,
   adoptOrphans, listAgents, killAgent,
   defaults, forTask, randomEnabled, WORKTREE_DIR,

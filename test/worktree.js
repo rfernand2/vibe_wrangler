@@ -191,6 +191,18 @@ async function main() {
   assert.match(bodies(t6.id), /Queued/);
   ok('a non-git project runs one task at a time');
 
+  // The row still says `ready`, so waiting has to be reported some other way or pressing Run looks
+  // like nothing happened at all.
+  assert.equal(agent.isQueued(t6.id), true);
+  assert.equal(agent.isQueued(t5.id), false);
+  ok('a task waiting its turn reports itself as queued');
+
+  const queuedNotes = () => bodies(t6.id).match(/Queued/g).length;
+  const before = queuedNotes();
+  agent.runTask(t6.id);
+  assert.equal(queuedNotes(), before);
+  ok('pressing Run again on a queued task does not repeat the note');
+
   await settle([t5.id]);
   await sleep(200);
   await settle([t6.id]);
