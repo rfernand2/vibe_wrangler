@@ -295,6 +295,16 @@ async function api(req, res, url) {
         }
       }
 
+      if (c === 'push' && method === 'POST') {
+        const project = projects.get(id);
+        if (!project) return json(res, 404, { error: 'Project not found' });
+        try {
+          return json(res, 200, local.pushAll(project));
+        } catch (err) {
+          return json(res, 400, { error: err.message });
+        }
+      }
+
       if (c === 'stop-local' && method === 'POST') {
         const project = projects.get(id);
         if (!project) return json(res, 404, { error: 'Project not found' });

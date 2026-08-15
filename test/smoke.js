@@ -11,7 +11,9 @@ const { handleCommentKeydown } = require('../public/comment-keys');
 const {
   shouldShowDeployBadge, deployButtonState, shouldCloseDeployDialog,
 } = require('../public/deploy-ui');
-const { shouldShowPushBadge, pushBadgeTitle } = require('../public/push-ui');
+const {
+  shouldShowPushBadge, pushBadgeTitle, pushButtonState, pushResultMessage,
+} = require('../public/push-ui');
 const { performanceSeries } = require('../public/performance-chart');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
@@ -68,7 +70,9 @@ async function main() {
   assert.match(index.body, /id="deployProjectBtn"/);
   assert.match(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
   assert.match(index.body, /src="\/push-ui\.js"/);
-  assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="deployProjectBtn"/);
+  assert.match(index.body, /id="pushProjectBtn"/);
+  assert.match(index.body, /id="pushProjectBtn"[^>]*\bdisabled\b/);
+  assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
   ok('serves the front end');
 
   let submitted = 0;
@@ -319,6 +323,54 @@ async function main() {
   assert.equal(pushBadgeTitle({ unpushed_commits: 1 }), 'Push needed — 1 commit not pushed to GitHub');
   assert.equal(pushBadgeTitle({ needs_push: true }), 'Push needed');
   ok('the Push needed badge shows only for real local work, and says what is outstanding');
+
+  // --- the badge is a button ---
+  assert.equal(pushButtonState(null).disabled, true);
+  assert.equal(pushButtonState({ is_repo: true, uncommitted_changes: 0, unpushed_commits: 0 }).text, 'Push');
+  assert.equal(pushButtonState({ is_repo: false, uncommitted_changes: 3 }).disabled, true,
+    'a folder that is not a repo offers nothing to press');
+  const needy = pushButtonState({ is_repo: true, uncommitted_changes: 2, unpushed_commits: 1 });
+  assert.equal(needy.disabled, false);
+  assert.equal(needy.text, 'Push needed');
+  assert.match(needy.title, /2 files not committed, 1 commit not pushed to GitHub — commit and push everything now/);
+  const busyPush = pushButtonState({ is_repo: true, uncommitted_changes: 2 }, { busy: true });
+  assert.equal(busyPush.disabled, true, 'a push already running cannot be started again');
+  assert.equal(busyPush.text, 'Pushing…');
+  assert.equal(pushResultMessage({ committed: true, files: 2, pushed: true, commits: 1, remote: 'origin', has_remote: true }),
+    'Committed 2 changes, pushed 1 commit to origin');
+  assert.equal(pushResultMessage({ pushed: true, commits: 3, remote: 'origin', has_remote: true }),
+    'Pushed 3 commits to origin');
+  assert.equal(pushResultMessage({ committed: true, files: 1, has_remote: false }),
+    'Committed 1 change, no remote to push to');
+  assert.equal(pushResultMessage({ has_remote: true }), 'Nothing to commit or push');
+  ok('the Push needed button says what it will do, and what it did');
+
+  const pushProj = (await call('POST', '/api/projects', { name: 'Push app', directory: gitDir })).body;
+  assert.equal(pushProj.is_repo, true);
+  assert.equal(pushProj.needs_push, true, 'b.txt is still sitting there uncommitted');
+  const didPush = await call('POST', `/api/projects/${pushProj.id}/push`);
+  assert.equal(didPush.status, 200);
+  assert.equal(didPush.body.committed, true);
+  assert.equal(didPush.body.pushed, true);
+  assert.equal(didPush.body.needs_push, false, 'the badge clears the moment the push lands');
+  assert.equal(gitRun(gitDir, 'log', '-1', '--format=%s'), 'push from Vibe Wrangler');
+  assert.equal(gitRun(gitRemote, 'log', '-1', '--format=%s'), 'push from Vibe Wrangler',
+    'the commit reached the remote, not just the local branch');
+  assert.deepEqual(local.localWork(gitDir), { is_repo: true, has_remote: true, uncommitted: 0, unpushed: 0 });
+  // Pressing it with nothing outstanding says so rather than failing.
+  const againPush = await call('POST', `/api/projects/${pushProj.id}/push`);
+  assert.equal(againPush.status, 200);
+  assert.equal(againPush.body.committed, false);
+  assert.equal(againPush.body.pushed, false);
+  await call('DELETE', `/api/projects/${pushProj.id}`);
+  assert.equal((await call('POST', '/api/projects/999999/push')).status, 404);
+  const notRepo = await call('POST', `/api/projects/${proj.id}/push`);
+  assert.equal(notRepo.status, 400);
+  assert.match(notRepo.body.error, /not a git repository/);
+  const nowhereToPush = (await call('POST', '/api/projects', { name: 'Nowhere' })).body;
+  assert.equal((await call('POST', `/api/projects/${nowhereToPush.id}/push`)).status, 400);
+  await call('DELETE', `/api/projects/${nowhereToPush.id}`);
+  ok('the Push needed button commits everything under one message and pushes it');
 
   const localProj = (await call('POST', '/api/projects', {
     name: 'Local app', directory: localDir,

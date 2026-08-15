@@ -11,6 +11,8 @@ const IS_WIN = process.platform === 'win32';
 const OWN_PORT = Number(process.env.PORT || 3000);
 // Two git calls per project on every repaint is a lot of spawning; a few seconds stale is fine.
 const GIT_TTL_MS = Number(process.env.VIBE_WRANGLER_GIT_TTL_MS ?? 3000);
+// Every commit the board makes on the user's behalf says where it came from, and says it the same way.
+const PUSH_MESSAGE = 'push from Vibe Wrangler';
 
 function readIfExists(file) {
   try {
@@ -140,6 +142,7 @@ function status(project, ports = listeningPorts()) {
     local_url: port ? `http://localhost:${port}` : null,
     prod_url: readProdUrl(project?.directory),
     can_deploy: hasFlyConfig(project?.directory),
+    is_repo: work.is_repo,
     uncommitted_changes: work.uncommitted,
     unpushed_commits: work.unpushed,
     // Work that only exists on this machine — either never committed, or committed but not pushed.
@@ -160,8 +163,8 @@ function decorateAll(list) {
   return list.map((p) => decorate(p, ports));
 }
 
-function requireDirectory(project) {
-  if (!project?.directory) throw new Error('Set a working directory before running this project locally');
+function requireDirectory(project, action = 'running this project locally') {
+  if (!project?.directory) throw new Error(`Set a working directory before ${action}`);
   let stat;
   try { stat = fs.statSync(project.directory); } catch { /* handled below */ }
   if (!stat?.isDirectory()) throw new Error('The project working directory does not exist');
@@ -223,7 +226,23 @@ async function stop(project) {
   return status(project);
 }
 
+/**
+ * What the "Push needed" button does: commit everything in the project repo under one fixed
+ * message and push it. The cached git state is dropped first, so the badge the board repaints
+ * straight afterwards reflects the push rather than the few-seconds-old count that prompted it.
+ */
+function pushAll(project) {
+  requireDirectory(project, 'pushing');
+  const result = git.commitAndPush(project.directory, PUSH_MESSAGE);
+  workCache.delete(project.directory);
+  if (!result.ok) throw new Error(result.error);
+  events.changed();
+  return { ...result, ...status(project) };
+}
+
 module.exports = {
+  PUSH_MESSAGE,
+  pushAll,
   readPort,
   readProdUrl,
   hasFlyConfig,

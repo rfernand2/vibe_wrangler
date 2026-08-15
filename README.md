@@ -465,6 +465,7 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `POST` | `/api/projects/:id/run-failed` | Retry every `failed` task in the project |
 | `POST` | `/api/projects/:id/run-local` | Start the project's `run.bat` / `run.sh` |
 | `POST` | `/api/projects/:id/stop-local` | Stop whatever is listening on the project's local port |
+| `POST` | `/api/projects/:id/push` | Commit everything in the project repo as "push from Vibe Wrangler" and push it |
 | `POST` | `/api/projects/:id/deploy` | Run `fly deploy` in the project directory |
 | `GET` | `/api/agents` | Every agent process the app knows is running |
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |

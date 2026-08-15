@@ -165,7 +165,21 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   white-space: nowrap;
 }
 .deploy-needed { border-color: #9a6a27; color: #f1bd70; }
-.push-needed { border-color: #2f6a8f; color: #7fc4ea; }
+.push-needed { border-color: #2f6a8f; color: #7fc4ea; background: rgba(47, 106, 143, .22); }
+
+/* The push badge is a real button, so it sits beside the project rather than inside it — a button
+   cannot legally contain another one, and clicking it must push rather than select the project. */
+.project-list li { display: flex; align-items: center; gap: 4px; }
+.project-list .project-btn { flex: 1; min-width: 0; }
+.project-list button.push-needed {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  margin: 0;
+  border-color: #2f6a8f;
+}
+.project-list button.push-needed:hover { background: rgba(47, 106, 143, .42); }
+.project-list button.push-needed:disabled { cursor: default; opacity: .6; }
 
 .content { flex: 1; padding: 18px 22px; min-width: 0; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }

@@ -134,6 +134,15 @@ function push(dir, remote, branch) {
 }
 
 /**
+ * A repo the user works in themselves already has an author name; only a folder that has never
+ * been committed from needs the board to stand in for one, and then only so the commit succeeds.
+ */
+function identityArgs(dir) {
+  if (git(dir, ['config', '--get', 'user.email']).out) return [];
+  return ['-c', 'user.name=vibe_wrangler', '-c', 'user.email=vibe_wrangler@localhost'];
+}
+
+/**
  * What this checkout still owes GitHub: files changed but never committed, and commits that sit
  * on no remote branch. Refs only, never the network, so the board can ask as often as it repaints.
  */
@@ -157,8 +166,47 @@ function localWork(dir, remote = 'origin') {
   };
 }
 
+/**
+ * The whole of what "Push needed" asks for, in one go: commit everything in the working tree, then
+ * send the branch to the remote. Both halves are optional — a repo can owe a commit, a push, both,
+ * or (pressing the button twice) neither — so the result says which ones actually happened rather
+ * than claiming success in the abstract.
+ */
+function commitAndPush(dir, message, remote = 'origin') {
+  const done = { ok: true, committed: false, pushed: false, files: 0, commits: 0, branch: null, remote };
+  if (!dir || !isRepo(dir)) {
+    return { ...done, ok: false, error: 'This project folder is not a git repository' };
+  }
+
+  const before = localWork(dir, remote);
+  done.files = before.uncommitted;
+  if (before.uncommitted > 0 || mergeInProgress(dir)) {
+    const add = git(dir, ['add', '-A']);
+    if (!add.ok) return { ...done, ok: false, error: add.err || 'git add failed' };
+    const commit = git(dir, [...identityArgs(dir), 'commit', '-m', message]);
+    if (!commit.ok) return { ...done, ok: false, error: commit.err || 'git commit failed' };
+    done.committed = true;
+  }
+
+  const after = localWork(dir, remote);
+  done.commits = after.unpushed;
+  // Nowhere to push to is not a failure: the commit is still saved, and the badge says as much.
+  if (!after.has_remote) return { ...done, has_remote: false };
+  if (after.unpushed === 0) return { ...done, has_remote: true };
+
+  const branch = currentBranch(dir);
+  if (!branch) {
+    return { ...done, has_remote: true, ok: false, error: 'This repository is not on a branch, so there is nothing to push' };
+  }
+  done.branch = branch;
+  const sent = push(dir, remote, branch);
+  if (!sent.ok) return { ...done, has_remote: true, ok: false, error: sent.err || `git push to ${remote} failed` };
+  done.pushed = true;
+  return { ...done, has_remote: true };
+}
+
 module.exports = {
   git, isRepo, currentBranch, branchExists, pickTaskBranch, addWorktree, removeWorktree,
   isDirty, commitAll, mergeBaseIn, conflictedFiles, stillConflicted, abortMerge, fastForward, shortLog,
-  headSha, hasRemote, remoteSha, push, localWork,
+  headSha, hasRemote, remoteSha, push, localWork, commitAndPush,
 };

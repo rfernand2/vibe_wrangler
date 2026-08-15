@@ -256,7 +256,7 @@ async function loadProjects() {
   for (const p of state.projects) {
     const li = document.createElement('li');
     const btn = document.createElement('button');
-    btn.className = state.view === 'project' && p.id === state.projectId ? 'selected' : '';
+    btn.className = state.view === 'project' && p.id === state.projectId ? 'project-btn selected' : 'project-btn';
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
@@ -267,13 +267,6 @@ async function loadProjects() {
       deployNeeded.title = 'Deployment needed';
       name.append(' ', deployNeeded);
     }
-    if (shouldShowPushBadge(p)) {
-      const pushNeeded = document.createElement('span');
-      pushNeeded.className = 'push-needed';
-      pushNeeded.textContent = 'Push needed';
-      pushNeeded.title = pushBadgeTitle(p);
-      name.append(' ', pushNeeded);
-    }
     const count = document.createElement('span');
     count.className = 'pcount';
     count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +
@@ -281,6 +274,17 @@ async function loadProjects() {
     btn.append(name, count);
     btn.onclick = () => selectProject(p.id);
     li.append(btn);
+    // Sits outside the project button so that pressing it pushes instead of switching project.
+    if (shouldShowPushBadge(p)) {
+      const pushNeeded = document.createElement('button');
+      pushNeeded.className = 'push-needed';
+      const pushState = pushButtonState(p, { busy: pushing.has(p.id) });
+      pushNeeded.textContent = pushState.text;
+      pushNeeded.title = pushState.title;
+      pushNeeded.disabled = pushState.disabled;
+      pushNeeded.onclick = () => pushProject(p.id);
+      li.append(pushNeeded);
+    }
     list.append(li);
   }
 }
@@ -1052,8 +1056,41 @@ function syncProjectButtons(project) {
   syncRunLocalButton(project);
   syncOpenLocalButton(project);
   syncRunProdButton(project);
+  syncPushButton(project);
   syncDeployButton(project);
 }
+
+/** Projects with a push in flight, so a second click cannot start a second commit on top of it. */
+const pushing = new Set();
+
+function syncPushButton(project) {
+  const button = $('pushProjectBtn');
+  const next = pushButtonState(project, { busy: project && pushing.has(project.id) });
+  button.disabled = next.disabled;
+  button.textContent = next.text;
+  button.title = next.title;
+}
+
+/**
+ * Commit everything and push it. Both the sidebar badge and the toolbar button land here, so the
+ * project id is passed in rather than read off the current selection.
+ */
+const pushProject = run(async (id) => {
+  const project = state.projects.find((x) => x.id === id);
+  if (!project || pushing.has(id)) return;
+  pushing.add(id);
+  if (id === state.projectId) syncPushButton(project);
+  try {
+    const result = await api('POST', `/api/projects/${id}/push`);
+    toast(pushResultMessage(result));
+  } finally {
+    pushing.delete(id);
+    // The badge is drawn from the project payload, so refetch before repainting it.
+    await loadProjects();
+    const current = state.projects.find((x) => x.id === state.projectId);
+    if (current) syncProjectButtons(current);
+  }
+});
 
 function syncRunLocalButton(project) {
   const button = $('runLocalBtn');
@@ -1149,6 +1186,10 @@ $('openLocalBtn').onclick = () => {
   const p = state.projects.find((x) => x.id === state.projectId);
   if (!p?.local_url) return;
   window.open(p.local_url, '_blank', 'noopener');
+};
+
+$('pushProjectBtn').onclick = () => {
+  if (state.projectId) pushProject(state.projectId);
 };
 
 $('deployProjectBtn').onclick = run(async () => {
