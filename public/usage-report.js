@@ -17,7 +17,7 @@ function formatUsd(n) {
 
 function harnessLabel(harness) {
   if (harness === 'claude') return 'Claude Code';
-  if (harness === 'codex') return 'OpenAI Codex';
+  if (harness === 'codex') return 'ChatGPT Codex';
   if (harness === 'grok') return 'Grok Build';
   return harness || 'Unknown';
 }

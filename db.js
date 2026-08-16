@@ -607,6 +607,15 @@ function allStatuses() {
 
 const usageLib = require('./usage');
 
+// Usage rows imported by older releases could inherit the default Claude harness. Repair only
+// model families that are unambiguous; Grok ids are also offered by Cursor and must stay as stored.
+db.exec(`
+  UPDATE llm_usage SET harness = 'codex'
+  WHERE model GLOB 'gpt-*' AND COALESCE(harness, '') <> 'codex';
+  UPDATE llm_usage SET harness = 'claude'
+  WHERE model GLOB 'claude-*' AND COALESCE(harness, '') <> 'claude';
+`);
+
 const emptyTotals = { tasks: 0, runs: 0, input_tokens: 0, cached_tokens: 0, output_tokens: 0, cost_usd: 0 };
 
 const usage = {
@@ -615,6 +624,7 @@ const usage = {
     return Boolean(q('SELECT 1 FROM llm_usage WHERE log_file = ? AND model = ?').get(logFile, model));
   },
   record(row) {
+    const harness = usageLib.inferHarness(row.harness, row.model);
     q(`INSERT OR IGNORE INTO llm_usage
        (run_id, task_id, log_file, harness, provider, model, channel,
         input_tokens, cached_tokens, output_tokens, cost_usd, cost_source)
@@ -622,7 +632,7 @@ const usage = {
       row.run_id ?? null,
       row.task_id ?? null,
       row.log_file ?? null,
-      row.harness ?? null,
+      harness,
       row.provider ?? 'native',
       row.model,
       row.channel,

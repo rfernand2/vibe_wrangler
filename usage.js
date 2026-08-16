@@ -40,6 +40,18 @@ function inferProvider(provider, model) {
   return provider || 'native';
 }
 
+/**
+ * Old usage imports sometimes borrowed the task's current/default harness instead of the CLI that
+ * produced the log. Models that belong to exactly one harness let us repair that stale metadata.
+ * Grok model ids are deliberately left alone because Cursor can run those models too.
+ */
+function inferHarness(harness, model) {
+  const id = String(model || '');
+  if (/^gpt-/.test(id)) return 'codex';
+  if (/^claude-/.test(id)) return 'claude';
+  return harness || null;
+}
+
 function isTerminal(evt) {
   const t = evt && evt.type;
   return t === 'result' || t === 'end' || t === 'turn.completed' || t === 'turn.failed';
@@ -140,6 +152,7 @@ function parseLog(text) {
 
 function finishRow(row, { model, harness, provider }) {
   const id = row.model || model || 'unknown';
+  harness = inferHarness(harness, id);
   provider = inferProvider(provider, id);
   let costUsd = row.costUsd;
   let costSource = row.costSource;
@@ -213,5 +226,5 @@ function backfill({ logDir, tasks, record, has }) {
 
 module.exports = {
   PRICES, channelFor, estimateCost, parseEvent, parseLog, detectHarness,
-  finishRow, taskIdFromLogName, backfill, fromUsageBlob, inferProvider, priceKey, isTerminal,
+  finishRow, taskIdFromLogName, backfill, fromUsageBlob, inferProvider, inferHarness, priceKey, isTerminal,
 };

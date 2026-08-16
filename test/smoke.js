@@ -81,7 +81,7 @@ async function main() {
   assert.match(usageScript, /<th>Model<\/th><th>Harness<\/th>/);
   assert.doesNotMatch(usageScript, /<th>Provider<\/th>/);
   assert.equal(harnessLabel('claude'), 'Claude Code');
-  assert.equal(harnessLabel('codex'), 'OpenAI Codex');
+  assert.equal(harnessLabel('codex'), 'ChatGPT Codex');
   assert.equal(harnessLabel('grok'), 'Grok Build');
   assert.equal(harnessLabel('custom-cli'), 'custom-cli');
   ok('labels the usage report by harness');
@@ -879,6 +879,12 @@ async function main() {
   const priced = usageMod.finishRow(codexUsage.models[0], { model: 'gpt-5.6-sol', harness: 'codex', provider: 'native' });
   assert.equal(priced.channel, 'subscription');
   assert.ok(priced.costUsd > 0);
+  const staleSol = usageMod.finishRow(codexUsage.models[0], {
+    model: 'gpt-5.6-sol', harness: 'claude', provider: 'native',
+  });
+  assert.equal(staleSol.harness, 'codex', 'a Sol row cannot inherit the Claude harness');
+  assert.equal(usageMod.inferHarness('cursor', 'grok-4.6'), 'cursor',
+    'a model shared by two harnesses keeps the harness recorded by its run');
   ok('usage events are parsed into in/cached/out and a simulated API cost');
   assert.equal(usageMod.parseEvent({ type: 'system', usage: { input_tokens: 2, cached_input_tokens: 99, output_tokens: 3 } }), null);
   const orRow = usageMod.finishRow({ model: 'openai/gpt-5.6-luna', input: 1000, cached: 0, output: 10, costUsd: null, costSource: 'estimate' }, { harness: 'grok' });
@@ -989,9 +995,14 @@ async function main() {
     model: 'openrouter-gpt-5-6-luna', channel: 'api',
     input_tokens: 30, cached_tokens: 0, output_tokens: 5, cost_usd: 0.02, cost_source: 'cli',
   });
+  usageStore.record({
+    task_id: null, log_file: 'task-3-test.log', harness: 'claude', provider: 'native',
+    model: 'gpt-5.6-sol', channel: 'subscription',
+    input_tokens: 40, cached_tokens: 10, output_tokens: 5, cost_usd: 0.03, cost_source: 'estimate',
+  });
   const filled = (await call('GET', '/api/usage')).body;
-  assert.equal(filled.subscription.models[0].model, 'claude-opus-5');
-  assert.equal(filled.subscription.totals.cost_usd, 0.5);
+  assert.equal(filled.subscription.models.find((row) => row.model === 'gpt-5.6-sol').harness, 'codex');
+  assert.equal(filled.subscription.totals.cost_usd, 0.53);
   assert.equal(filled.api.models[0].channel, 'api');
   assert.equal(filled.api.totals.cost_usd, 0.02);
   ok('the usage report splits subscription and API costs by model');
