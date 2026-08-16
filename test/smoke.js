@@ -15,6 +15,7 @@ const {
   shouldShowPushBadge, pushBadgeTitle, pushButtonState, sidebarPushButtonState, pushResultMessage,
 } = require('../public/push-ui');
 const { performanceSeries } = require('../public/performance-chart');
+const { harnessLabel } = require('../public/usage-report');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -75,6 +76,15 @@ async function main() {
   assert.match(index.body, /id="pushProjectBtn"[^>]*\bdisabled\b/);
   assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
   ok('serves the front end');
+
+  const usageScript = (await call('GET', '/usage-report.js')).body;
+  assert.match(usageScript, /<th>Model<\/th><th>Harness<\/th>/);
+  assert.doesNotMatch(usageScript, /<th>Provider<\/th>/);
+  assert.equal(harnessLabel('claude'), 'Claude Code');
+  assert.equal(harnessLabel('codex'), 'OpenAI Codex');
+  assert.equal(harnessLabel('grok'), 'Grok Build');
+  assert.equal(harnessLabel('custom-cli'), 'custom-cli');
+  ok('labels the usage report by harness');
 
   const appScript = (await call('GET', '/app.js')).body;
   const projectSwitch = /const selectProject = run\(async \(id\) => \{([\s\S]*?)\n\}\);/.exec(appScript)?.[1] || '';

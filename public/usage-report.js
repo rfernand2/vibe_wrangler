@@ -15,11 +15,11 @@ function formatUsd(n) {
   return '$' + v.toFixed(2);
 }
 
-function providerLabel(provider) {
-  if (!provider || provider === 'native') return 'Native';
-  if (provider === 'openrouter') return 'OpenRouter';
-  if (provider === 'ollama') return 'Ollama';
-  return provider;
+function harnessLabel(harness) {
+  if (harness === 'claude') return 'Claude Code';
+  if (harness === 'codex') return 'OpenAI Codex';
+  if (harness === 'grok') return 'Grok Build';
+  return harness || 'Unknown';
 }
 
 function modelLabel(row) {
@@ -30,13 +30,13 @@ function usageTable(pack) {
   const table = document.createElement('table');
   table.className = 'usage-table';
   table.innerHTML = `<thead><tr>
-    <th>Model</th><th>Provider</th><th>Tasks</th><th>In</th><th>Cached</th><th>Out</th><th>Cost</th>
+    <th>Model</th><th>Harness</th><th>Tasks</th><th>In</th><th>Cached</th><th>Out</th><th>Cost</th>
   </tr></thead><tbody></tbody><tfoot></tfoot>`;
   const body = table.querySelector('tbody');
   for (const row of pack.models) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${escapeHtml(modelLabel(row))}</td>
-      <td>${escapeHtml(providerLabel(row.provider))}</td>
+      <td>${escapeHtml(harnessLabel(row.harness))}</td>
       <td>${row.tasks}</td>
       <td>${formatTokens(row.input_tokens)}</td>
       <td>${formatTokens(row.cached_tokens)}</td>
@@ -79,5 +79,5 @@ function renderUsageReport(report, root, tab) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { formatTokens, formatUsd, modelLabel, providerLabel, renderUsageReport };
+  module.exports = { formatTokens, formatUsd, modelLabel, harnessLabel, renderUsageReport };
 }
