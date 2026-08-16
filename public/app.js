@@ -57,8 +57,8 @@ const run = (fn) => (...args) => fn(...args).catch((e) => toast(e.message, true)
 
 /* ---------- Attachments ---------- */
 
-/** The one shape the app writes for an attachment, and the only markup it renders back. */
-const ATTACHMENT_REF = /(!?)\[([^\]\n]*)\]\((\/attachments\/[^)\s]+)\)/g;
+/** The one shape the app writes for an attachment or a project document, and the only markup it renders back. */
+const ATTACHMENT_REF = /(!?)\[([^\]\n]*)\]\(((?:\/attachments\/[^)\s]+)|(?:\/api\/projects\/\d+\/files\?path=[^)\s]+))\)/g;
 
 async function uploadFile(file) {
   // A pasted screenshot often arrives nameless, so give it one the agent can make sense of later.
@@ -121,8 +121,8 @@ function wireAttachments(ta, btn, input) {
 }
 
 /**
- * Only the app's own attachment references become elements; every other character stays a text node.
- * That keeps images and downloads inline without opening the door to arbitrary markup in a comment.
+ * Only the app's own attachment and document references become elements; every other character stays
+ * a text node. That keeps images and downloads inline without opening the door to arbitrary markup.
  */
 function renderBody(el, text) {
   const src = String(text || '');

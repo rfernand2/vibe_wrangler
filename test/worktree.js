@@ -125,7 +125,9 @@ async function main() {
   ok('worktrees and task branches are cleaned up');
 
   assert.match(bodies(t1.id), /merged into main/);
+  assert.doesNotMatch(bodies(t1.id), /\/files\?path=/);
   ok('the thread says where the work landed');
+  ok('ordinary code edits do not get file links');
 
   const afterMerges = projects.get(p1.id);
   assert.equal(afterMerges.needs_deploy, true);
@@ -365,6 +367,30 @@ async function main() {
 
   assert.equal(read(repo, 'a.txt'), 'base\nfrom A\nfrom H\n');
   ok('the retry still merges its own change back');
+
+  // --- a report, or a named document, gets a link in the thread; a code change does not ---
+  const tReport = tasks.create({
+    project_id: p1.id,
+    title: 'Write a product report',
+    description: 'FAKE_WRITE_REPORT',
+  });
+  agent.runTask(tReport.id);
+  await settle([tReport.id]);
+  assert.equal(tasks.get(tReport.id).status, 'completed');
+  assert.match(read(repo, 'reviews', 'report.md'), /A short report/);
+  assert.match(bodies(tReport.id), /You can view the file here: \[reviews\/report\.md\]\(\/api\/projects\/\d+\/files\?path=reviews%2Freport\.md\)/);
+  ok('a report task gets a link to the file the agent wrote');
+
+  const tNamed = tasks.create({
+    project_id: p1.id,
+    title: 'Update the notes',
+    description: 'Please update notes.md\nFAKE_APPEND notes.md|hello',
+  });
+  agent.runTask(tNamed.id);
+  await settle([tNamed.id]);
+  assert.equal(tasks.get(tNamed.id).status, 'completed');
+  assert.match(bodies(tNamed.id), /files\?path=notes\.md/);
+  ok('a named document gets a link even when the title does not say report');
 
   // --- an agent that reports its result but leaves a process holding the pipe must not hang ---
   const t9 = tasks.create({

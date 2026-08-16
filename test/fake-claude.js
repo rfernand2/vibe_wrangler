@@ -112,6 +112,11 @@ function run() {
     return;
   }
 
+  if (prompt.includes('FAKE_WRITE_REPORT')) {
+    fs.mkdirSync(path.join(process.cwd(), 'reviews'), { recursive: true });
+    fs.writeFileSync(path.join(process.cwd(), 'reviews', 'report.md'), 'A short report.\n');
+  }
+
   say('PLAN: Read the code\nPLAN: Make the change\nPLAN: Check it works');
   say('DONE: read the CODE');
   // Real agents run one directive onto the end of another often enough to matter.

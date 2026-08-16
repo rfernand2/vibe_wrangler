@@ -118,6 +118,12 @@ function shortLog(dir, base, branch) {
   return r.out ? r.out.split(/\r?\n/).filter(Boolean) : [];
 }
 
+/** Paths this branch added or edited relative to base — deletes are left out, there is nothing to open. */
+function changedFiles(dir, base) {
+  const r = git(dir, ['diff', '--name-only', '--diff-filter=ACMR', `${base}...HEAD`]);
+  return r.out ? r.out.split(/\r?\n/).filter(Boolean) : [];
+}
+
 function headSha(dir) {
   const r = git(dir, ['rev-parse', 'HEAD']);
   return r.ok && r.out ? r.out : null;
@@ -213,5 +219,6 @@ function commitAndPush(dir, message, remote = 'origin') {
 module.exports = {
   git, isRepo, currentBranch, branchExists, pickTaskBranch, addWorktree, removeWorktree,
   isDirty, commitAll, mergeBaseIn, conflictedFiles, stillConflicted, abortMerge, fastForward, shortLog,
+  changedFiles,
   headSha, hasRemote, remoteSha, push, localWork, commitAndPush,
 };

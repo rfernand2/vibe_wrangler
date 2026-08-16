@@ -49,6 +49,8 @@ Projects  ──▶  Tasks  ──▶  Comments
   either box, or use **Attach files**. Images render inline; everything else becomes a download link.
   The agent sees each attachment as a path to a real file on disk, so it can open your mock-up, log or
   spec rather than being told one exists.
+- **Document links** — when a task asks for a report or names a specific document, a system note in
+  the thread links to those files so you can open them. Ordinary code edits are left out.
 - **Checklists** — the agent breaks each task into sub-tasks up front and ticks them off as it goes, so you
   can see how far through it is rather than just "active". A task's checklist opens itself on the board
   while the agent is working and folds away once it stops; the triangle beside any task overrides that
@@ -505,6 +507,7 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `GET` | `/api/projects/:id` | One project, decorated the same way |
 | `PUT` | `/api/projects/:id` | Update a project |
 | `DELETE` | `/api/projects/:id` | Delete a project and its tasks |
+| `GET` | `/api/projects/:id/files?path=` | View a document the agent was asked to write |
 | `GET` | `/api/projects/:id/tasks?status=&tag=` | List a project's tasks, optionally filtered |
 | `GET` | `/api/tasks?status=&tag=` | List tasks across every project |
 | `GET` | `/api/tags` | Every tag in use, with task counts |

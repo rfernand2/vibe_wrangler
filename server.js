@@ -14,6 +14,7 @@ const usageLib = require('./usage');
 const deployment = require('./deploy');
 const local = require('./local');
 const { version } = require('./package.json');
+const docLinks = require('./doc-links');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -313,6 +314,18 @@ async function api(req, res, url) {
         } catch (err) {
           return json(res, 400, { error: err.message });
         }
+      }
+
+      if (c === 'files' && method === 'GET') {
+        const project = projects.get(id);
+        if (!project) return json(res, 404, { error: 'Project not found' });
+        const file = docLinks.resolve(project.directory, url.searchParams.get('path') || '');
+        if (!file) return send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
+        return send(res, 200, fs.readFileSync(file), {
+          'Content-Type': attachments.mimeFor(file),
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+        });
       }
 
       if (c === 'stop-local' && method === 'POST') {

@@ -9,6 +9,7 @@ const proc = require('./proc');
 const attachments = require('./attachments');
 const harnesses = require('./harnesses');
 const usage = require('./usage');
+const docLinks = require('./doc-links');
 
 const LOG_DIR = process.env.VIBE_WRANGLER_LOGS || path.join(__dirname, 'data', 'logs');
 const WORKTREE_DIR = process.env.VIBE_WRANGLER_WORKTREES || path.join(__dirname, 'data', 'worktrees');
@@ -679,7 +680,7 @@ function launchRun(task, pending) {
         }
         if (result.summary) comments.create({ task_id: taskId, author: 'agent', body: result.summary });
 
-        if (!iso) return finish(taskId, 'completed', null, log);
+        if (!iso) return finish(taskId, 'completed', null, log, { changedFiles: [] });
         mergeBack(taskId, task, iso, log, 1);
       },
     });
@@ -729,11 +730,14 @@ function mergeBack(taskId, task, iso, log, attempt) {
     return abandon(taskId, iso, log, `Could not commit the agent's changes (${commit.err.slice(0, 200)}).`);
   }
 
+  // Read this before main is fast-forwarded — afterwards the two sides match and the list is empty.
+  const changed = git.changedFiles(iso.wtPath, iso.base);
+
   if (!git.shortLog(iso.root, iso.base, iso.branch).length) {
     log.write('\n[git] no commits on the task branch; nothing to merge\n');
     git.removeWorktree(iso.root, iso.wtPath, iso.branch);
     isolation.delete(taskId);
-    return finish(taskId, 'completed', null, log);
+    return finish(taskId, 'completed', null, log, { changedFiles: [] });
   }
 
   const merged = git.mergeBaseIn(iso.wtPath, iso.base);
@@ -765,7 +769,7 @@ function mergeBack(taskId, task, iso, log, attempt) {
   const sha = git.headSha(iso.root);
   if (sha) projects.recordMerge(task.project_id, sha);
   pushToGithub(task, iso, log);
-  finish(taskId, 'completed', null, log);
+  finish(taskId, 'completed', null, log, { changedFiles: changed });
 }
 
 /**
@@ -842,16 +846,48 @@ function abandon(taskId, iso, log, why) {
   finish(taskId, 'failed', `${why} The work is safe on branch \`${branch}\` — merge it yourself when you're ready.`, log);
 }
 
-function finish(taskId, status, message, log) {
+function finish(taskId, status, message, log, extra = {}) {
   running.delete(taskId);
   starting.delete(taskId);
   isolation.delete(taskId);
   replying.delete(taskId);
   if (message) comments.create({ task_id: taskId, author: 'system', body: message });
+  if (status === 'completed') {
+    const task = tasks.get(taskId);
+    if (task) postDocumentLinks(task, extra.changedFiles || []);
+  }
   tasks.setStatus(taskId, status);
   log.end();
   const task = tasks.get(taskId);
   if (task) drainQueue(task.project_id);
+}
+
+/**
+ * When the brief named a document or asked for a report, leave a clickable link in the thread.
+ * Ordinary code edits stay out of it, and a follow-up that did not write a new file is not repeated.
+ */
+function postDocumentLinks(task, changedFiles) {
+  const project = projects.get(task.project_id);
+  if (!project?.directory) return;
+  const history = comments.listForTask(task.id);
+  const brief = [
+    task.title,
+    task.description,
+    ...history.filter((c) => c.author === 'user').map((c) => c.body),
+  ].join('\n');
+  const files = docLinks.selectDocuments({
+    brief,
+    changedFiles,
+    projectDir: project.directory,
+  });
+  if (!files.length) return;
+  const prior = history.filter((c) => c.author === 'system').map((c) => c.body).join('\n');
+  if (files.every((f) => prior.includes(docLinks.fileUrl(project.id, f)))) return;
+  comments.create({
+    task_id: task.id,
+    author: 'system',
+    body: docLinks.commentBody(project.id, files),
+  });
 }
 
 function stopTask(taskId) {

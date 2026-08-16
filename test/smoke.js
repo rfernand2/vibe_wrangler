@@ -16,6 +16,7 @@ const {
 } = require('../public/push-ui');
 const { performanceSeries } = require('../public/performance-chart');
 const { harnessLabel } = require('../public/usage-report');
+const docLinks = require('../doc-links');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe_wrangler-test-'));
 process.env.VIBE_WRANGLER_DB = path.join(tmp, 'test.db');
@@ -122,6 +123,35 @@ async function main() {
   assert.equal(handleCommentKeydown(composingEnter, form), false);
   assert.equal(submitted, 1, 'confirming composed text does not submit the comment form');
   ok('uses Return to send comments and Shift-Return for new lines');
+
+  const docsDir = path.join(tmp, 'docs-pick');
+  fs.mkdirSync(path.join(docsDir, 'reviews'), { recursive: true });
+  fs.mkdirSync(path.join(docsDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(docsDir, 'reviews', 'report.md'), 'ok');
+  fs.writeFileSync(path.join(docsDir, 'docs', 'guide.md'), 'ok');
+  fs.writeFileSync(path.join(docsDir, 'server.js'), 'ok');
+  fs.writeFileSync(path.join(docsDir, 'a.txt'), 'ok');
+  assert.deepEqual(docLinks.mentionedFiles('Please update docs/guide.md and server.js'), ['docs/guide.md']);
+  assert.equal(docLinks.wantsDocument('Write a product report'), true);
+  assert.equal(docLinks.wantsDocument('Fix the login bug'), false);
+  assert.deepEqual(docLinks.selectDocuments({
+    brief: 'Write a product report',
+    changedFiles: ['reviews/report.md', 'server.js'],
+    projectDir: docsDir,
+  }), ['reviews/report.md']);
+  assert.deepEqual(docLinks.selectDocuments({
+    brief: 'Fix the login bug',
+    changedFiles: ['server.js', 'a.txt'],
+    projectDir: docsDir,
+  }), []);
+  assert.deepEqual(docLinks.selectDocuments({
+    brief: 'Please update docs/guide.md',
+    changedFiles: [],
+    projectDir: docsDir,
+  }), ['docs/guide.md']);
+  assert.match(docLinks.commentBody(3, ['reviews/report.md']),
+    /You can view the file here: \[reviews\/report\.md\]\(\/api\/projects\/3\/files\?path=reviews%2Freport\.md\)/);
+  ok('picks named documents and implicit reports, and leaves ordinary code edits out');
 
   const DEFAULTS = { harness: 'codex', provider: 'native', model: 'gpt-5.6-sol' };
   const ran = { last_harness: 'claude', last_provider: 'native', last_model: 'claude-opus-5' };
@@ -1232,6 +1262,22 @@ async function main() {
   assert.equal(attachments.toLocalPaths('![gone](/attachments/nope.png)'),
     '![gone](/attachments/nope.png)', 'a reference that no longer resolves is left as written');
   ok('rewrites attachment references to local paths for the agent');
+
+  const docsRoot = path.join(tmp, 'view-docs');
+  fs.mkdirSync(docsRoot);
+  fs.writeFileSync(path.join(docsRoot, 'notes.md'), 'hello from the notes');
+  fs.writeFileSync(path.join(docsRoot, 'secret.js'), 'nope');
+  const docsProj = (await call('POST', '/api/projects', {
+    name: 'Docs', directory: docsRoot,
+  })).body;
+  const viewed = await call('GET', `/api/projects/${docsProj.id}/files?path=notes.md`);
+  assert.equal(viewed.status, 200);
+  assert.match(viewed.body, /hello from the notes/);
+  assert.equal((await call('GET', `/api/projects/${docsProj.id}/files?path=..%2F..%2Fetc%2Fpasswd`)).status, 404);
+  assert.equal((await call('GET', `/api/projects/${docsProj.id}/files?path=secret.js`)).status, 404);
+  assert.equal((await call('GET', '/api/projects/999999/files?path=notes.md')).status, 404);
+  await call('DELETE', `/api/projects/${docsProj.id}`);
+  ok('serves a named document and refuses traversal or code files');
 
   assert.equal((await call('GET', '/api/nope')).status, 404);
   ok('unknown endpoints 404');
