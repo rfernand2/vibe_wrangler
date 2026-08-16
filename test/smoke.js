@@ -76,6 +76,8 @@ async function main() {
   assert.match(index.body, /id="pushProjectBtn"/);
   assert.match(index.body, /id="pushProjectBtn"[^>]*\bdisabled\b/);
   assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
+  assert.match(index.body, /<header class="appbar">[\s\S]*id="usageBtn"[\s\S]*id="performanceBtn"[\s\S]*id="agentsBtn"[\s\S]*id="menuBtn"/);
+  assert.doesNotMatch(index.body, /<header class="appbar">[\s\S]*id="menuBtn"[\s\S]*id="usageBtn"/);
   ok('serves the front end');
 
   const usageScript = (await call('GET', '/usage-report.js')).body;
@@ -88,6 +90,8 @@ async function main() {
   ok('labels the usage report by harness');
 
   const appScript = (await call('GET', '/app.js')).body;
+  assert.match(appScript, /textContent = `\$\{h\.name\}: \$\{agentName\(state\.harnesses, \{ harness: h\.id \}\)\}`/,
+    'the random-harness checkboxes name the top model after the harness');
   const projectSwitch = /const selectProject = run\(async \(id\) => \{([\s\S]*?)\n\}\);/.exec(appScript)?.[1] || '';
   assert.match(projectSwitch, /renderProjects\(\)/, 'switching immediately redraws the cached selection');
   assert.doesNotMatch(projectSwitch, /loadProjects\(\)/,

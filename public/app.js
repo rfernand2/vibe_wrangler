@@ -736,9 +736,12 @@ $('menuBtn').onclick = () => {
   const menu = $('appMenu');
   if (!menu.hidden) return closeAppMenu();
   const r = $('menuBtn').getBoundingClientRect();
-  menu.style.left = `${r.left}px`;
-  menu.style.top = `${r.bottom + 6}px`;
+  // Hang from the right edge so a far-right hamburger does not open off-screen.
+  menu.style.left = '0px';
+  menu.style.top = '0px';
   menu.hidden = false;
+  const { width } = menu.getBoundingClientRect();
+  placeMenu(menu, r.right - width, r.bottom + 6);
 };
 
 // The button toggles itself, so a click on it must not also count as a click outside.
@@ -1561,7 +1564,7 @@ function openSettings() {
     lab.innerHTML = '<input type="checkbox"> <span></span>';
     lab.querySelector('input').value = h.id;
     lab.querySelector('input').checked = picked.has(h.id);
-    lab.querySelector('span').textContent = h.name;
+    lab.querySelector('span').textContent = `${h.name}: ${agentName(state.harnesses, { harness: h.id })}`;
     return lab;
   }));
   openDialog('settingsDialog');
