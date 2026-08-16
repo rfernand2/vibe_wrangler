@@ -26,7 +26,8 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Projects** — create / edit / delete. Each project points at a working directory on disk (that's where the agent runs).
 - **Tasks** — create / edit / delete, grouped and filterable by status. Each is numbered from `#1`
   within its project. A number is retired when its task is deleted, so it never comes to mean
-  something else later.
+  something else later. The row names the agent under the status pill — the model that ran, or the
+  one that would run next.
 - **Tags** — label tasks with anything you like (`bug`, `backend`, `v2`). Tags are normalized (trimmed,
   lower-cased, de-duplicated) so `Backend` and `backend ` are the same tag.
 - **Right-click a task** to toggle review tags on and off without opening it — `needs review`,
@@ -42,7 +43,8 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Comments** — an append-only conversation per task. The agent writes progress notes while it works and a
   summary when it finishes. You can add your own comments too (review notes, test results, follow-ups) —
   and on a task that has already finished, a comment sets it back to active and the agent continues. See
-  [reactivating a closed task](#reactivating-a-closed-task).
+  [reactivating a closed task](#reactivating-a-closed-task). **Return** sends the comment; **Shift-Return**
+  inserts a newline.
 - **Attachments** — paste a screenshot straight into a task description or a comment, drop files onto
   either box, or use **Attach files**. Images render inline; everything else becomes a download link.
   The agent sees each attachment as a path to a real file on disk, so it can open your mock-up, log or
@@ -57,10 +59,18 @@ Projects  ──▶  Tasks  ──▶  Comments
 - **Retry failed** — a run that fails leaves the task in `failed` with its work parked on a branch.
   **Retry failed** re-runs every failed task in the project; the retry gets a *new* branch, so the
   branch holding the earlier attempt's work is never deleted out from under you.
+- **Grades** — after a task has been run, pick a letter grade (`A+` down to `F`) from the task row or
+  the drawer. The grade is snapshotted to the harness, provider and model that actually ran, so a later
+  retry cannot rewrite the history. Clear the dropdown to remove it. A task that has never been run
+  cannot be graded.
 - **Agent performance** — a chart of the grades you have given, one line per agent. Each point is that
   agent's *average* grade for a day, so a busy day reads as one mark rather than a spike of five; once
   the history runs past 50 days the points become weekly averages instead. A day (or week) an agent was
   not used leaves a gap in its line rather than a straight line drawn across the silence.
+- **Usage** — the **Usage** button opens tokens and cost, split into two tabs. **Subscription** is
+  Claude Code and Codex on your existing login: the dollar figure is what those tokens would have
+  cost on the API. **API** is what you actually paid — Grok Build, OpenRouter and Ollama. Each row
+  is one model; old transcripts that recorded tokens are counted too.
 - **Agents** — a dialog listing every agent process the app knows about, with a Stop button for each.
   This includes agents inherited from an earlier run of the app, not just ones this instance started.
 - **Harness, provider & model** — **Settings** (under the ☰ menu, alongside **About**) picks the three
@@ -80,6 +90,15 @@ Projects  ──▶  Tasks  ──▶  Comments
   run a task on a hosted third-party model or on one running locally. Picking one is all you do — the app
   writes the model alias Grok needs into its config file before the run starts. See
   [harnesses, providers & models](#harnesses-providers--models) for the full list.
+- **Deployment** — a bar under the project title for the rest of the shipping path. **Run local**
+  starts the project's `run.bat` / `run.sh` (and becomes **Stop local** while it is up); **Open Local**
+  and **Open Prod** open the instance and the fly URL. **Push needed** lights when there are
+  uncommitted files or commits that never reached GitHub, and pressing it commits everything and
+  pushes. **Deploy** runs `fly deploy` when the project has a `fly.toml`, and shows how many pushes
+  are waiting to ship. A finished agent run that merged also pushes to GitHub on its own. See
+  [shipping a project](#shipping-a-project).
+- **The last thing you were looking at** — the selected project, or the All tasks view, comes back
+  when you reload the board.
 - **Live** — the board updates itself. There is no Refresh button because there is nothing to refresh:
   the server pushes a notification whenever anything changes and every open tab refetches.
 - **Local & private** — everything lives in a single SQLite file. No cloud, and no API keys unless you
@@ -149,6 +168,8 @@ command, a working directory and a stream of output, which is why supporting a s
   - **Ollama** — [Ollama](https://ollama.com) running locally. The dropdown lists what you have pulled, so
     pull first (`ollama pull qwen3-coder`) and it appears; Ollama does not download a model on demand, and
     picking one it doesn't have stops the run before it starts rather than failing partway.
+- **Optional, for Deploy:** the [fly](https://fly.io/docs/flyctl/) CLI (`fly`) on your `PATH`, and a
+  `fly.toml` in the project directory. Without both, **Deploy** stays disabled.
 
 ## Quick start
 
@@ -167,7 +188,7 @@ macOS / Linux:
 ./run.sh
 ```
 
-Either script checks your prerequisites, starts the server and opens <http://localhost:3000> in your browser.
+Either script checks your prerequisites, starts the server and opens <http://localhost:5000> in your browser.
 To use a different port:
 
 ```bat
@@ -261,7 +282,9 @@ When a task finishes, the app:
 4. Fast-forwards your branch onto the result. A fast-forward is the only merge your working copy ever
    sees, so it can't leave you with a conflicted tree, and git refuses outright rather than clobbering
    uncommitted work.
-5. Deletes the worktree and the task branch.
+5. Pushes that branch to `origin` when the remote exists, so GitHub (and then Fly) can see it. A
+   failed push is noted on the task and does not undo the merge — the work is already on your checkout.
+6. Deletes the worktree and the task branch.
 
 If any of that fails, the task is marked `failed` and a comment tells you which `llm-task/<id>` branch
 still holds the work — nothing is ever thrown away.
@@ -270,6 +293,33 @@ Projects that **aren't** git repos have nowhere to isolate to, so their tasks ar
 a time instead. A task waiting its turn shows a `queued` pill on the board and offers Stop, which takes
 it back out of the queue. The queue is held in memory, so restarting the app clears it — anything still
 waiting has to be run again.
+
+## Shipping a project
+
+The **Deployment** bar under the project title is for everything after the agent has merged: run it
+here, look at it, push leftover local work, and ship it.
+
+- **Run local** starts the project's own `run.bat` / `run.sh`. The port is read from that script, not
+  guessed, so a project that never names one is not mistaken for whatever happens to be listening.
+  While it is up the button becomes **Stop local**. The board's own port is never treated as the
+  project's — you cannot stop Vibe Wrangler by pressing Stop local on a project that happens to
+  share a number.
+- **Open Local** opens the instance once a port is known. **Open Prod** opens the fly URL taken from
+  `fly.toml` (`https://<app>.fly.dev`).
+- **Push needed** is both the badge and the button. It lights when there are uncommitted files, or
+  commits that never reached GitHub, and says which. Pressing it commits everything as "push from
+  Vibe Wrangler" and pushes to `origin`. A folder that is not a git repo, or a clean repo with
+  nowhere to push, leaves the button disabled rather than hidden, so the bar does not shuffle
+  between repaints. The same action appears on the project in the sidebar when work is outstanding;
+  there the label is just **Push**, and what is waiting stays in the tooltip.
+- **Deploy** runs `fly deploy` in the project directory. Without a `fly.toml` there is nothing to
+  ship, so the button stays disabled. The label is `Deploy: N pushes` — how many GitHub pushes are
+  waiting to go live. A progress popup follows the log and closes itself on success; a failure
+  leaves it open so you can still read what fly said. Only one deploy runs at a time.
+
+A successful agent merge already pushes to GitHub on its own (see [above](#running-several-tasks-at-once)).
+**Push needed** is for work that did not go through that path — edits you made by hand, or a merge
+whose push failed.
 
 ## Surviving a restart
 
@@ -313,7 +363,7 @@ Environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PORT` | `3000` | HTTP port |
+| `PORT` | `5000` | HTTP port. The launch scripts set this; starting `server.js` with no `PORT` still falls back to `3000` |
 | `VIBE_WRANGLER_DB` | `./data/vibe_wrangler.db` | SQLite database file |
 | `VIBE_WRANGLER_LOGS` | `./data/logs` | Directory for raw agent transcripts |
 | `VIBE_WRANGLER_WORKTREES` | `./data/worktrees` | Where per-task git worktrees are checked out |
@@ -328,6 +378,10 @@ Environment variables:
 | `AGENT_PROVIDER` | first provider of that harness | Default provider before one has been saved in Settings |
 | `AGENT_MODEL` | first model of that provider | Default model before one has been saved in Settings |
 | `AGENT_EXIT_GRACE_MS` | `20000` | How long to wait for the CLI to exit after it reports its result |
+| `VIBE_WRANGLER_GIT_TTL_MS` | `3000` | How long a project's git status may be reused before it is checked again |
+| `OLLAMA_HOST` | `http://localhost:11434` | Where to ask Ollama for the models you have pulled |
+| `OLLAMA_TIMEOUT_MS` | `1500` | How long to wait for Ollama before treating it as not running |
+| `FLY_BIN` | `fly` | Path to the fly CLI used by **Deploy** |
 
 `AGENT_HARNESS`, `AGENT_PROVIDER` and `AGENT_MODEL` are only a starting point: once you save Settings the
 stored choice wins, because a default you picked in the app shouldn't be silently overridden by the
@@ -412,6 +466,9 @@ harnesses.js       Harness catalogue: how each agent CLI is launched, set up, an
 git.js             Worktree / branch / merge plumbing for concurrent tasks, and what a checkout still owes GitHub
 proc.js            Liveness, identity and tree-kill for agent processes
 local.js           Starts and stops a project's local instance, finds its fly URL, and reads its git state
+deploy.js          Runs `fly deploy` and streams the log to the board
+usage.js           Token counts and cost for the Usage report
+attachments.js     Stores pasted and uploaded files, and serves them back
 events.js          Server-sent change notifications that keep open tabs current
 public/            Single-page front end (no build step, no framework)
 test/smoke.js      End-to-end API test against a throwaway database
@@ -430,7 +487,8 @@ npm test
 Two suites, neither of which invokes a real agent CLI — both are fast and free.
 
 - `test/smoke.js` spins the server up on a spare port against a temporary database and exercises the
-  whole API: CRUD, tags, status filtering, cascade deletes, harness/provider/model selection, and the
+  whole API: CRUD, tags, status filtering, cascade deletes, harness/provider/model selection, grades
+  and the performance chart, usage, deploy and push, the local instance, comment keys, and the
   agent's failure paths.
 - `test/worktree.js` builds throwaway git repos and runs two agents on one repo at the same time,
   using a scripted stand-in for the CLI. It checks that both changes land, that a genuine merge
@@ -442,8 +500,9 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/projects` | List projects with task counts |
+| `GET` | `/api/projects` | List projects with task counts, git state, and local/prod URLs |
 | `POST` | `/api/projects` | Create a project |
+| `GET` | `/api/projects/:id` | One project, decorated the same way |
 | `PUT` | `/api/projects/:id` | Update a project |
 | `DELETE` | `/api/projects/:id` | Delete a project and its tasks |
 | `GET` | `/api/projects/:id/tasks?status=&tag=` | List a project's tasks, optionally filtered |
@@ -453,7 +512,7 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `POST` | `/api/quick-tags` | Add a tag to that set |
 | `POST` | `/api/projects/:id/tasks` | Create a task |
 | `GET` | `/api/tasks/:id` | Task detail with comments |
-| `PUT` | `/api/tasks/:id` | Update a task |
+| `PUT` | `/api/tasks/:id` | Update a task — including its grade, once it has been run |
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `POST` | `/api/tasks/:id/comments` | Add a comment — on a closed task this reopens it and starts the agent, and the response says `replying: true` |
 | `DELETE` | `/api/comments/:id` | Delete a comment |
@@ -466,7 +525,10 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `POST` | `/api/projects/:id/run-local` | Start the project's `run.bat` / `run.sh` |
 | `POST` | `/api/projects/:id/stop-local` | Stop whatever is listening on the project's local port |
 | `POST` | `/api/projects/:id/push` | Commit everything in the project repo as "push from Vibe Wrangler" and push it |
+| `GET` | `/api/projects/:id/deploy` | Snapshot of the current or last deploy job |
 | `POST` | `/api/projects/:id/deploy` | Run `fly deploy` in the project directory |
+| `GET` | `/api/performance` | Graded tasks in chronological order, for the agent history chart |
+| `GET` | `/api/usage` | Tokens and cost, split into subscription (simulated API price) and API (metered) |
 | `GET` | `/api/agents` | Every agent process the app knows is running |
 | `POST` | `/api/agents/:id/stop` | Terminate one of them |
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
