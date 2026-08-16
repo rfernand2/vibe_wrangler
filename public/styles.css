@@ -378,6 +378,9 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .check-row input { width: auto; margin: 2px 0 0; accent-color: var(--accent); }
 .check-row span { display: grid; gap: 3px; }
 .check-row small { color: var(--muted); }
+.random-harnesses { border: 1px solid var(--border, #333); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; }
+.random-harnesses legend { padding: 0 4px; }
+.random-harness-list { display: grid; gap: 6px; }
 
 /* Fields that only mean anything read together, kept on one line. */
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

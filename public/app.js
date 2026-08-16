@@ -7,7 +7,7 @@ const state = {
   view: 'project', // 'project' | 'all'
   version: '',
   harnesses: [],
-  settings: { harness: '', provider: '', model: '', random: false },
+  settings: { harness: '', provider: '', model: '', random: [] },
   projects: [],
   projectId: null,
   filter: 'all',
@@ -766,7 +766,11 @@ const modelName = (harnessId, providerId, modelId) =>
  * asking about the endpoint instead. The server still draws for tasks created outside this dialog.
  */
 function drawHarness() {
-  const h = state.harnesses[Math.floor(Math.random() * state.harnesses.length)];
+  const allowed = new Set(state.settings.random || []);
+  const pool = allowed.size
+    ? state.harnesses.filter((h) => allowed.has(h.id))
+    : state.harnesses;
+  const h = (pool.length ? pool : state.harnesses)[Math.floor(Math.random() * (pool.length || state.harnesses.length))];
   const p = h.providers.find((x) => x.id === 'native') || h.providers[0];
   return { harness: h.id, provider: p.id, model: p.models[0].id };
 }
@@ -848,7 +852,7 @@ let dealtHarness = false;
  * a draw the human does not fancy is overridden by simply changing it.
  */
 const fillTaskHarness = (task) => {
-  dealtHarness = !task && state.settings.random;
+  dealtHarness = !task && (state.settings.random || []).length;
   fillHarness(TASK_SELECTS, dealtHarness ? drawHarness() : {
     harness: task?.harness || state.settings.harness,
     provider: task?.provider || state.settings.provider,
@@ -1549,7 +1553,17 @@ $('performanceBtn').onclick = run(async () => {
 
 function openSettings() {
   fillHarness(SETTINGS_SELECTS, state.settings);
-  $('settingsRandom').checked = state.settings.random;
+  const picked = new Set(state.settings.random || []);
+  const list = $('settingsRandomList');
+  list.replaceChildren(...state.harnesses.map((h) => {
+    const lab = document.createElement('label');
+    lab.className = 'check-row';
+    lab.innerHTML = '<input type="checkbox"> <span></span>';
+    lab.querySelector('input').value = h.id;
+    lab.querySelector('input').checked = picked.has(h.id);
+    lab.querySelector('span').textContent = h.name;
+    return lab;
+  }));
   openDialog('settingsDialog');
 }
 
@@ -1558,7 +1572,7 @@ $('settingsForm').addEventListener('submit', run(async () => {
     harness: $('settingsHarness').value,
     provider: $('settingsProvider').value,
     model: $('settingsModel').value,
-    random: $('settingsRandom').checked,
+    random: [...$('settingsRandomList').querySelectorAll('input:checked')].map((el) => el.value),
   });
   showAgentInfo();
   // Every task following the default now reads differently, on the board and in the drawer.
@@ -1572,8 +1586,8 @@ function openAbout() {
   $('aboutHarnesses').textContent = state.harnesses.map((h) => h.name).join(', ');
   // "Running with" is a promise about the next task, so the draw has to be named here or the line
   // is simply wrong for every task made while it is on.
-  $('aboutDefault').textContent = state.settings.random
-    ? `A harness at random · ${defaultLabel()} for tasks made before that was turned on`
+  $('aboutDefault').textContent = (state.settings.random || []).length
+    ? `A harness at random from ${state.settings.random.map(harnessName).join(', ')}`
     : defaultLabel();
   openDialog('aboutDialog');
 }

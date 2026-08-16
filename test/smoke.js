@@ -25,6 +25,7 @@ process.env.PORT = '38111';
 process.env.VIBE_WRANGLER_GIT_TTL_MS = '0';
 process.env.CLAUDE_BIN = 'definitely-not-a-real-binary';
 process.env.GROK_BIN = 'definitely-not-a-real-binary';
+process.env.CURSOR_BIN = 'definitely-not-a-real-binary';
 // So writing a Grok model alias in a test never touches the real ~/.grok/config.toml.
 process.env.GROK_CONFIG = path.join(tmp, 'grok.toml');
 // Which models Ollama offers depends on what the machine has pulled, so it answers for itself here.
@@ -804,7 +805,7 @@ async function main() {
   const harnesses = require('../harnesses');
   const config = (await call('GET', '/api/config')).body;
   assert.ok(config.version, 'reports its version');
-  assert.deepEqual(config.harnesses.map((h) => h.id), ['claude', 'codex', 'grok']);
+  assert.deepEqual(config.harnesses.map((h) => h.id), ['claude', 'codex', 'grok', 'cursor']);
   assert.ok(config.harnesses[0].providers[0].models.length, 'each provider offers models');
   const grokCat = config.harnesses.find((h) => h.id === 'grok');
   assert.deepEqual(grokCat.providers.map((p) => p.id), ['native', 'openrouter', 'ollama']);
@@ -839,6 +840,16 @@ async function main() {
   assert.deepEqual(codex({ type: 'turn.completed', usage: {} }), { done: true, failed: false });
   assert.deepEqual(codex({ type: 'turn.failed', error: {} }), { done: true, failed: true });
   assert.equal(codex({ type: 'item.completed', item: { type: 'reasoning' } }), null);
+  const cursorRead = harnesses.byId('cursor').reader();
+  assert.deepEqual(cursorRead({
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: 'NOTE: hi' }] },
+  }), { text: 'NOTE: hi' });
+  assert.deepEqual(cursorRead({ type: 'result', subtype: 'success', result: 'done', is_error: false }),
+    { done: true, text: 'done', failed: false });
+  const cursorEnv = { CURSOR_API_KEY: 'ck', PATH: '/bin' };
+  harnesses.byId('cursor').env(cursorEnv);
+  assert.equal(cursorEnv.CURSOR_API_KEY, undefined);
   ok('each harness reads its own event stream');
 
   const usageMod = require('../usage');
@@ -950,7 +961,7 @@ async function main() {
   ok('a run that cannot work is stopped before a worktree is made for it');
 
   assert.deepEqual((await call('GET', '/api/settings')).body,
-    { harness: 'claude', provider: 'native', model: 'claude-opus-5', random: false });
+    { harness: 'claude', provider: 'native', model: 'claude-opus-5', random: [] });
   ok('defaults to the first model of the first harness');
 
   const emptyUsage = (await call('GET', '/api/usage')).body;
@@ -981,7 +992,7 @@ async function main() {
   ok('rejects a harness, provider, or model that does not exist');
 
   const stored = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
-  assert.deepEqual(stored, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra', random: false });
+  assert.deepEqual(stored, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra', random: [] });
   assert.deepEqual((await call('GET', '/api/settings')).body, stored);
   ok('remembers the default harness, provider, and model');
 
@@ -1064,12 +1075,16 @@ async function main() {
     'takes the top model of the harness it drew');
   const drawn = new Set();
   for (let i = 0; i < 200; i++) drawn.add(harnesses.randomChoice().harness);
-  assert.deepEqual([...drawn].sort(), ['claude', 'codex', 'grok'], 'every harness comes up');
-  ok('the draw covers all three harnesses, each on its own top model');
+  assert.deepEqual([...drawn].sort(), ['claude', 'codex', 'cursor', 'grok'], 'every harness comes up');
+  ok('the draw covers every harness, each on its own top model');
 
-  assert.equal((await call('PUT', '/api/settings',
-    { harness: 'codex', model: 'gpt-5.6-terra', random: true })).body.random, true);
-  assert.equal((await call('GET', '/api/settings')).body.random, true, 'the choice outlives the request');
+  assert.deepEqual((await call('PUT', '/api/settings',
+    { harness: 'codex', model: 'gpt-5.6-terra', random: true })).body.random.sort(), ['claude', 'codex', 'cursor', 'grok']);
+  assert.deepEqual((await call('GET', '/api/settings')).body.random.sort(), ['claude', 'codex', 'cursor', 'grok'], 'the choice outlives the request');
+  assert.deepEqual((await call('PUT', '/api/settings',
+    { harness: 'codex', random: ['claude', 'cursor'] })).body.random.sort(), ['claude', 'cursor']);
+  assert.deepEqual((await call('GET', '/api/settings')).body.random.sort(), ['claude', 'cursor'], 'a short list is kept');
+  await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra', random: true });
 
   const dealt = [];
   for (let i = 0; i < 12; i++) {
@@ -1081,7 +1096,7 @@ async function main() {
     assert.equal(t.model, harnesses.byId(t.harness).providers[0].models[0].id);
     assert.deepEqual(resolved(t.id), { harness: t.harness, provider: t.provider, model: t.model });
   }
-  // Twelve draws over three harnesses landing on one is a 1-in-280,000 fluke, or a broken draw.
+  // Twelve draws over four harnesses landing on one is a fluke, or a broken draw.
   assert.ok(new Set(dealt.map((t) => t.harness)).size > 1, 'the tasks are spread across harnesses');
   ok('each new task is dealt its own harness and keeps it');
 
@@ -1112,11 +1127,11 @@ async function main() {
   assert.deepEqual(resolved(asShown.id), { harness: 'grok', provider: 'native', model: 'grok-4.5' });
   ok('a harness or model you chose yourself is not overruled by the draw');
 
-  assert.equal((await call('PUT', '/api/settings', { harness: 'grok' })).body.random, true,
+  assert.ok((await call('PUT', '/api/settings', { harness: 'grok' })).body.random.length,
     'saving the default alone leaves the draw as it was');
   const off = (await call('PUT', '/api/settings',
-    { harness: 'claude', model: 'claude-opus-5', random: false })).body;
-  assert.equal(off.random, false);
+    { harness: 'claude', model: 'claude-opus-5', random: [] })).body;
+  assert.deepEqual(off.random, []);
   const plain = (await call('POST', `/api/projects/${proj.id}/tasks`, { title: 'Plain' })).body;
   assert.equal(plain.harness, null, 'with the draw off, a task follows the default again');
   ok('the draw can be turned off, and tasks go back to following the default');

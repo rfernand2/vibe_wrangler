@@ -164,15 +164,11 @@
         <select id="settingsModel"></select>
       </label>
     </div>
-    <label class="check-row">
-      <input type="checkbox" id="settingsRandom">
-      <span>Give each new task a harness at random
-        <small>Every task created from now on is dealt one of the harnesses by lot, on its own top
-          model, and keeps it. Grade the results and the performance chart says which one is doing
-          better. Tasks that already exist, and any task where you pick a harness yourself, are
-          left alone.</small>
-      </span>
-    </label>
+    <fieldset class="random-harnesses">
+      <legend>Deal each new task one of these</legend>
+      <p class="muted">Checked harnesses are drawn by lot, each on its top model. Leave them all off and new tasks follow the default above. A pick on the task itself still wins.</p>
+      <div id="settingsRandomList" class="random-harness-list"></div>
+    </fieldset>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close="settingsDialog">Cancel</button>
       <button type="submit" class="btn btn-primary">Save</button>

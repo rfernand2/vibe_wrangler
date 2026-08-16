@@ -19,6 +19,17 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude';
 const CODEX_BIN = process.env.CODEX_BIN || 'codex';
 const GROK_BIN = process.env.GROK_BIN || 'grok';
 
+function defaultCursorBin() {
+  if (process.env.CURSOR_BIN) return process.env.CURSOR_BIN;
+  const win = path.join(os.homedir(), 'AppData', 'Local', 'cursor-agent', 'cursor-agent.cmd');
+  if (fs.existsSync(win)) return win;
+  const unix = path.join(os.homedir(), '.local', 'bin', 'cursor-agent');
+  if (fs.existsSync(unix)) return unix;
+  return 'cursor-agent';
+}
+
+const CURSOR_BIN = defaultCursorBin();
+
 const GROK_CONFIG = process.env.GROK_CONFIG || path.join(os.homedir(), '.grok', 'config.toml');
 
 /**
@@ -308,6 +319,45 @@ const HARNESSES = [
       };
     },
   },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    bin: CURSOR_BIN,
+    input: 'stdin',
+    providers: native([
+      { id: 'grok-4.6', name: 'Grok 4.6' },
+      { id: 'grok-4.5', name: 'Grok 4.5' },
+    ]),
+    args: (model) => [
+      '-p',
+      '--output-format', 'stream-json',
+      '--force',
+      '--trust',
+      '--model', model,
+    ],
+    env(env) {
+      // Force the Cursor Ultra login. An inherited API key would bill outside the plan.
+      delete env.CURSOR_API_KEY;
+    },
+    reader: stateless((evt) => {
+      if (evt.type === 'result') {
+        return {
+          done: true,
+          text: typeof evt.result === 'string' ? evt.result : '',
+          failed: evt.is_error === true || Boolean(evt.subtype && evt.subtype !== 'success'),
+          ...(usage.parseEvent(evt) && { usage: usage.parseEvent(evt) }),
+        };
+      }
+      if (evt.type === 'assistant') {
+        const text = (evt.message?.content || [])
+          .filter((b) => b.type === 'text' && b.text)
+          .map((b) => b.text)
+          .join('\n');
+        return text ? { text } : null;
+      }
+      return null;
+    }),
+  }
 ];
 
 const DEFAULT_HARNESS = 'claude';
@@ -332,8 +382,14 @@ function resolve(harnessId, providerId, modelId) {
  * harness does better, and routing one of them through somebody else's endpoint would be asking
  * about the endpoint instead. Ids rather than objects — this is what gets stored on the task.
  */
-function randomChoice() {
-  const harness = HARNESSES[Math.floor(Math.random() * HARNESSES.length)];
+function randomChoice(ids) {
+  let pool = HARNESSES;
+  if (ids && ids.length) {
+    const want = new Set(ids);
+    pool = HARNESSES.filter((h) => want.has(h.id));
+  }
+  if (!pool.length) pool = HARNESSES;
+  const harness = pool[Math.floor(Math.random() * pool.length)];
   const provider = harness.providers.find((p) => p.id === 'native') || harness.providers[0];
   return { harness: harness.id, provider: provider.id, model: provider.models[0].id };
 }

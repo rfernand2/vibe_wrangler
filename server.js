@@ -173,7 +173,7 @@ async function api(req, res, url) {
     const current = () => {
       const { harness, provider, model } = agent.defaults();
       return {
-        harness: harness.id, provider: provider.id, model: model.id, random: agent.randomEnabled(),
+        harness: harness.id, provider: provider.id, model: model.id, random: agent.randomPool(),
       };
     };
     if (method === 'GET') return json(res, 200, current());
@@ -188,7 +188,13 @@ async function api(req, res, url) {
       settings.set('model', chosen.model.id);
       // Absent leaves it alone: a client that predates the option should not switch it off by
       // saving the harness default, which is a separate choice that happens to share this form.
-      if (body.random !== undefined) settings.set('random_harness', body.random ? '1' : '0');
+      if (body.random !== undefined) {
+      const ids = Array.isArray(body.random)
+        ? body.random.filter((id) => harnesses.byId(id))
+        : (body.random ? harnesses.HARNESSES.map((h) => h.id) : []);
+      settings.set('random_harnesses', ids.join(','));
+      settings.set('random_harness', ids.length ? '1' : '0');
+    }
       return json(res, 200, current());
     }
   }
@@ -240,7 +246,7 @@ async function api(req, res, url) {
           // to the task rather than re-rolled at run time, so a task keeps the harness it was given
           // across a retry and the grade it earns stays attached to the one that earned it.
           const named = pick.harness || pick.provider || pick.model;
-          const chosen = !named && agent.randomEnabled() ? harnesses.randomChoice() : pick;
+          const chosen = !named && agent.randomEnabled() ? harnesses.randomChoice(agent.randomPool()) : pick;
           return json(res, 201, tasks.create({
             project_id: id,
             title: body.title.trim(),
