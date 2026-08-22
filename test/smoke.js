@@ -90,6 +90,8 @@ async function main() {
   ok('labels the usage report by harness');
 
   const appScript = (await call('GET', '/app.js')).body;
+  assert.match(index.body, /id="settingsRandomEnabled"/,
+    'settings has a separate switch for random harness drawing');
   assert.match(appScript, /textContent = `\$\{h\.name\}: \$\{agentName\(state\.harnesses, \{ harness: h\.id \}\)\}`/,
     'the random-harness checkboxes name the top model after the harness');
   const projectSwitch = /const selectProject = run\(async \(id\) => \{([\s\S]*?)\n\}\);/.exec(appScript)?.[1] || '';
@@ -1010,8 +1012,10 @@ async function main() {
   assert.equal(gh.preflight(gp, gm, {}), null, 'an installed model is left to run');
   ok('a run that cannot work is stopped before a worktree is made for it');
 
-  assert.deepEqual((await call('GET', '/api/settings')).body,
-    { harness: 'claude', provider: 'native', model: 'claude-opus-5', random: [] });
+  assert.deepEqual((await call('GET', '/api/settings')).body, {
+    harness: 'claude', provider: 'native', model: 'claude-opus-5', random: [],
+    randomPool: ['claude', 'codex', 'grok', 'cursor'], randomEnabled: false,
+  });
   ok('defaults to the first model of the first harness');
 
   const emptyUsage = (await call('GET', '/api/usage')).body;
@@ -1047,11 +1051,14 @@ async function main() {
   ok('rejects a harness, provider, or model that does not exist');
 
   const stored = (await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra' })).body;
-  assert.deepEqual(stored, { harness: 'codex', provider: 'native', model: 'gpt-5.6-terra', random: [] });
+  assert.deepEqual(stored, {
+    harness: 'codex', provider: 'native', model: 'gpt-5.6-terra', random: [],
+    randomPool: ['claude', 'codex', 'grok', 'cursor'], randomEnabled: false,
+  });
   assert.deepEqual((await call('GET', '/api/settings')).body, stored);
   ok('remembers the default harness, provider, and model');
 
-  const { random: _drawOff, ...defaults } = stored;
+  const { random: _drawOff, randomPool: _pool, randomEnabled: _enabled, ...defaults } = stored;
 
   const { tasks: taskStore } = require('../db');
   const { forTask } = require('../agent');
@@ -1139,6 +1146,15 @@ async function main() {
   assert.deepEqual((await call('PUT', '/api/settings',
     { harness: 'codex', random: ['claude', 'cursor'] })).body.random.sort(), ['claude', 'cursor']);
   assert.deepEqual((await call('GET', '/api/settings')).body.random.sort(), ['claude', 'cursor'], 'a short list is kept');
+  const pausedDraw = (await call('PUT', '/api/settings',
+    { harness: 'codex', randomEnabled: false })).body;
+  assert.equal(pausedDraw.randomEnabled, false);
+  assert.deepEqual(pausedDraw.random, []);
+  assert.deepEqual(pausedDraw.randomPool.sort(), ['claude', 'cursor'], 'turning the draw off keeps its pool');
+  const resumedDraw = (await call('PUT', '/api/settings',
+    { harness: 'codex', randomEnabled: true })).body;
+  assert.deepEqual(resumedDraw.random.sort(), ['claude', 'cursor'], 'turning the draw back on restores its pool');
+  ok('the random draw switch preserves the selected harnesses');
   await call('PUT', '/api/settings', { harness: 'codex', model: 'gpt-5.6-terra', random: true });
 
   const dealt = [];

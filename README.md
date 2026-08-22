@@ -79,8 +79,9 @@ Projects  ──▶  Tasks  ──▶  Comments
   every task runs with by default; a task can name its own instead. A task's dropdowns open on the
   current default, and leaving them there means the task *follows* that default rather than
   snapshotting it, so changing it later moves the task too. Change one and only that one is pinned.
-- **Give each new task a harness at random** — a tickbox in **Settings**. With it on, every task you
-  create is dealt one of the harnesses by lot, on its own **Native** provider and top model, and keeps
+- **Give each new task a harness at random** — a switch in **Settings**, with checkboxes for the
+  harnesses included in the draw. With it on, every task you create is dealt one of those harnesses
+  by lot, on its own **Native** provider and top model, and keeps
   it: the draw is written onto the task, so a retry runs the same one and the grade it earns stays
   attached to it. Grade a batch of tasks this way and the **Agent performance** chart is a like-for-like
   comparison of the harnesses instead of a record of whichever one happened to be the default. The
@@ -537,8 +538,8 @@ Two suites, neither of which invokes a real agent CLI — both are fast and free
 | `GET` | `/api/tasks/:id/log` | Raw transcript of the last agent run |
 | `GET` | `/api/statuses` | Known status values (built-in + user-defined) |
 | `GET` | `/api/config` | App version and the harness catalogue: each harness, its providers, their models |
-| `GET` | `/api/settings` | The default harness, provider and model, and whether new tasks are dealt one at random |
-| `PUT` | `/api/settings` | Change them. `random` is optional; omitting it leaves the draw as it was |
+| `GET` | `/api/settings` | The default harness, provider and model, plus the random-draw switch and harness pool |
+| `PUT` | `/api/settings` | Change them. `randomEnabled` controls the draw; `random` selects its harness pool |
 | `GET` | `/api/events` | Change notification stream (server-sent events) |
 
 ## License

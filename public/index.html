@@ -165,8 +165,10 @@
       </label>
     </div>
     <fieldset class="random-harnesses">
-      <legend>Deal each new task one of these</legend>
-      <p class="muted">Checked harnesses are drawn by lot, each on its top model. Leave them all off and new tasks follow the default above. A pick on the task itself still wins.</p>
+      <legend>
+        <label class="check-row"><input type="checkbox" id="settingsRandomEnabled"> <span>Draw harness at random</span></label>
+      </legend>
+      <p class="muted">When enabled, one of the checked harnesses is drawn by lot on its top model. A pick on the task itself still wins.</p>
       <div id="settingsRandomList" class="random-harness-list"></div>
     </fieldset>
     <div class="dialog-actions">

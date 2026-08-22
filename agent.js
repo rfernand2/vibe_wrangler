@@ -245,15 +245,15 @@ function defaults() {
  * default. It lives beside the defaults because it answers the same question — what a task runs
  * with when the human did not say — and it is only ever read as a task is being created.
  */
-function randomPool() {
+function randomCandidates() {
   const raw = settings.get('random_harnesses');
   if (raw != null && String(raw).trim() !== '') {
     return String(raw).split(',').map((id) => id.trim()).filter((id) => harnesses.byId(id));
   }
-  if (settings.get('random_harness') === '1') return harnesses.HARNESSES.map((h) => h.id);
-  return [];
+  return harnesses.HARNESSES.map((h) => h.id);
 }
-const randomEnabled = () => randomPool().length > 0;
+const randomEnabled = () => settings.get('random_harness') === '1' && randomCandidates().length > 0;
+const randomPool = () => randomEnabled() ? randomCandidates() : [];
 
 /**
  * A task naming a harness but no model takes that harness's own first model — never the one picked
@@ -1090,5 +1090,5 @@ module.exports = {
   runTask, stopTask, runReady, runFailed, isRunning, isQueued, readLog,
   reply, canChat, isReplying, CHAT_STATUSES,
   adoptOrphans, listAgents, killAgent,
-  defaults, forTask, randomEnabled, randomPool, WORKTREE_DIR,
+  defaults, forTask, randomEnabled, randomPool, randomCandidates, WORKTREE_DIR,
 };

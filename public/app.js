@@ -1556,7 +1556,9 @@ $('performanceBtn').onclick = run(async () => {
 
 function openSettings() {
   fillHarness(SETTINGS_SELECTS, state.settings);
-  const picked = new Set(state.settings.random || []);
+  const enabled = $('settingsRandomEnabled');
+  enabled.checked = Boolean(state.settings.randomEnabled);
+  const picked = new Set(state.settings.randomPool || state.settings.random || []);
   const list = $('settingsRandomList');
   list.replaceChildren(...state.harnesses.map((h) => {
     const lab = document.createElement('label');
@@ -1564,9 +1566,13 @@ function openSettings() {
     lab.innerHTML = '<input type="checkbox"> <span></span>';
     lab.querySelector('input').value = h.id;
     lab.querySelector('input').checked = picked.has(h.id);
+    lab.querySelector('input').disabled = !enabled.checked;
     lab.querySelector('span').textContent = `${h.name}: ${agentName(state.harnesses, { harness: h.id })}`;
     return lab;
   }));
+  enabled.onchange = () => {
+    list.querySelectorAll('input').forEach((input) => { input.disabled = !enabled.checked; });
+  };
   openDialog('settingsDialog');
 }
 
@@ -1576,6 +1582,7 @@ $('settingsForm').addEventListener('submit', run(async () => {
     provider: $('settingsProvider').value,
     model: $('settingsModel').value,
     random: [...$('settingsRandomList').querySelectorAll('input:checked')].map((el) => el.value),
+    randomEnabled: $('settingsRandomEnabled').checked,
   });
   showAgentInfo();
   // Every task following the default now reads differently, on the board and in the drawer.

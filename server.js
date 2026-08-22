@@ -174,7 +174,10 @@ async function api(req, res, url) {
     const current = () => {
       const { harness, provider, model } = agent.defaults();
       return {
-        harness: harness.id, provider: provider.id, model: model.id, random: agent.randomPool(),
+        harness: harness.id, provider: provider.id, model: model.id,
+        random: agent.randomPool(),
+        randomPool: agent.randomCandidates(),
+        randomEnabled: agent.randomEnabled(),
       };
     };
     if (method === 'GET') return json(res, 200, current());
@@ -190,12 +193,16 @@ async function api(req, res, url) {
       // Absent leaves it alone: a client that predates the option should not switch it off by
       // saving the harness default, which is a separate choice that happens to share this form.
       if (body.random !== undefined) {
-      const ids = Array.isArray(body.random)
-        ? body.random.filter((id) => harnesses.byId(id))
-        : (body.random ? harnesses.HARNESSES.map((h) => h.id) : []);
-      settings.set('random_harnesses', ids.join(','));
-      settings.set('random_harness', ids.length ? '1' : '0');
-    }
+        const ids = Array.isArray(body.random)
+          ? body.random.filter((id) => harnesses.byId(id))
+          : (body.random ? harnesses.HARNESSES.map((h) => h.id) : []);
+        settings.set('random_harnesses', ids.join(','));
+        // Old clients only send `random`, so keep treating their list as both the pool and switch.
+        if (body.randomEnabled === undefined) settings.set('random_harness', ids.length ? '1' : '0');
+      }
+      if (body.randomEnabled !== undefined) {
+        settings.set('random_harness', body.randomEnabled ? '1' : '0');
+      }
       return json(res, 200, current());
     }
   }
