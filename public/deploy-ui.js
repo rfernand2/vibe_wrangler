@@ -70,9 +70,12 @@ function sidebarDeployButtonState(project, { busy = false, blocked = false } = {
   };
 }
 
-/** Close the progress popup once fly is done; leave it open on failure so the log is still readable. */
+/**
+ * Hide the popup as soon as Deploy is pressed. Success is the button flipping to Deploying… then
+ * vanishing; only a failure needs the window, so the error stays readable.
+ */
 function shouldCloseDeployDialog(status) {
-  return status === 'ok';
+  return status !== 'failed';
 }
 
 if (typeof module !== 'undefined') {

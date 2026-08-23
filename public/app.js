@@ -1169,13 +1169,10 @@ function showDeployProgress(status, output, error) {
     return;
   }
   if (!dlg.open) dlg.showModal();
-  const running = status === 'running' || status == null;
-  $('deployDialogTitle').textContent = running ? 'Deploying…' : (status === 'ok' ? 'Deployed' : 'Deploy failed');
-  $('deployDialogStatus').textContent = running
-    ? 'fly deploy is running…'
-    : (status === 'ok' ? 'Deployment completed.' : (error || 'fly deploy failed'));
+  $('deployDialogTitle').textContent = 'Deploy failed';
+  $('deployDialogStatus').textContent = error || 'fly deploy failed';
   const log = $('deployLog');
-  log.textContent = output || (running ? 'Starting fly deploy…\n' : '');
+  log.textContent = output || '';
   log.scrollTop = log.scrollHeight;
 }
 

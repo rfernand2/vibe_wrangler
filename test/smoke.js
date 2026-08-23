@@ -308,8 +308,8 @@ async function main() {
   assert.equal(deployButtonState(idle, { busy: true }).text, 'Deploying…');
   assert.equal(shouldCloseDeployDialog('ok'), true);
   assert.equal(shouldCloseDeployDialog('failed'), false);
-  assert.equal(shouldCloseDeployDialog('running'), false);
-  ok('hides Deploy without fly.toml and closes the popup after a successful deploy');
+  assert.equal(shouldCloseDeployDialog('running'), true);
+  ok('hides Deploy without fly.toml and keeps the popup closed unless deploy fails');
 
   // --- the sidebar column is one button wide, so the count moves into the tooltip ---
   const sidebarDeploy = sidebarDeployButtonState(due);

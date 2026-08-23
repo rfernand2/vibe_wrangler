@@ -307,14 +307,14 @@
   </div>
 </dialog>
 
-<!-- Deploy progress dialog -->
+<!-- Deploy error dialog — shown only when fly deploy fails -->
 <dialog id="deployDialog" class="deploy-dialog">
   <div class="dialog-form">
     <div class="dialog-head">
-      <h3 id="deployDialogTitle">Deploying…</h3>
+      <h3 id="deployDialogTitle">Deploy failed</h3>
       <button type="button" class="icon-btn" data-close="deployDialog" aria-label="Close">&times;</button>
     </div>
-    <p class="muted" id="deployDialogStatus">Starting fly deploy…</p>
+    <p class="muted" id="deployDialogStatus">fly deploy failed</p>
     <pre id="deployLog"></pre>
   </div>
 </dialog>

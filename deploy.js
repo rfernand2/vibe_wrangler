@@ -7,7 +7,7 @@ const events = require('./events');
 const git = require('./git');
 
 const running = new Map();
-/** Last finished job per project, so the popup can still show the log after fly exits. */
+/** Last finished job per project, so a failed deploy can still show the log in the error popup. */
 const last = new Map();
 
 function viewOf(job, runningNow) {
