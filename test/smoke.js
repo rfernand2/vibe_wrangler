@@ -92,6 +92,11 @@ async function main() {
   const appScript = (await call('GET', '/app.js')).body;
   assert.match(index.body, /id="settingsRandomEnabled"/,
     'settings has a separate switch for random harness drawing');
+  const settingsSubmit = /\$\('settingsForm'\)\.addEventListener\('submit',[\s\S]*?toast\('Settings saved'\);/.exec(appScript)?.[0] || '';
+  assert.match(settingsSubmit, /e\.preventDefault\(\)/,
+    'settings stays open until its save request has completed');
+  assert.ok(settingsSubmit.indexOf("await api('PUT', '/api/settings'") < settingsSubmit.indexOf("$('settingsDialog').close()"),
+    'settings only closes after its save request has completed');
   assert.match(appScript, /textContent = `\$\{h\.name\}: \$\{agentName\(state\.harnesses, \{ harness: h\.id \}\)\}`/,
     'the random-harness checkboxes name the top model after the harness');
   const projectSwitch = /const selectProject = run\(async \(id\) => \{([\s\S]*?)\n\}\);/.exec(appScript)?.[1] || '';
@@ -1149,6 +1154,8 @@ async function main() {
   const pausedDraw = (await call('PUT', '/api/settings',
     { harness: 'codex', randomEnabled: false })).body;
   assert.equal(pausedDraw.randomEnabled, false);
+  assert.equal(require('../db').settings.get('random_harness'), '0',
+    'the disabled switch is persisted rather than kept only in server memory');
   assert.deepEqual(pausedDraw.random, []);
   assert.deepEqual(pausedDraw.randomPool.sort(), ['claude', 'cursor'], 'turning the draw off keeps its pool');
   const resumedDraw = (await call('PUT', '/api/settings',

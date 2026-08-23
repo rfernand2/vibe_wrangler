@@ -1573,7 +1573,10 @@ function openSettings() {
   openDialog('settingsDialog');
 }
 
-$('settingsForm').addEventListener('submit', run(async () => {
+$('settingsForm').addEventListener('submit', run(async (e) => {
+  // A method="dialog" form normally closes as soon as it is submitted. Keep it open until the
+  // write finishes, so a refresh after the dialog disappears cannot cancel the settings request.
+  e.preventDefault();
   state.settings = await api('PUT', '/api/settings', {
     harness: $('settingsHarness').value,
     provider: $('settingsProvider').value,
@@ -1581,6 +1584,7 @@ $('settingsForm').addEventListener('submit', run(async () => {
     random: [...$('settingsRandomList').querySelectorAll('input:checked')].map((el) => el.value),
     randomEnabled: $('settingsRandomEnabled').checked,
   });
+  $('settingsDialog').close();
   showAgentInfo();
   // Every task following the default now reads differently, on the board and in the drawer.
   await loadTasks();
