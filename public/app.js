@@ -852,9 +852,10 @@ const fillTaskHarness = (task) => {
   $('taskHarnessHint').textContent = dealtHarness ? DEALT_AT_RANDOM : FOLLOWS_DEFAULT;
 };
 
-/** The harnesses the app can drive at all — a fact about the build, not about the current default. */
+/** The CLIs the app can drive at all — a fact about the build, not about the current default. */
 function showAgentInfo() {
-  $('agentInfo').textContent = state.harnesses.map((h) => h.name).join(', ');
+  const names = state.harnesses.map((h) => h.name).join(', ');
+  $('agentInfo').textContent = `Supported CLIs: ${names}`;
 }
 
 /* ---------- Task drawer ---------- */

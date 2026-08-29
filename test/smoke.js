@@ -100,6 +100,10 @@ async function main() {
   ok('labels the usage report by harness');
 
   const appScript = (await call('GET', '/app.js')).body;
+  assert.match(index.body, /<h1>Vibe Wrangler<\/h1>\s*<span class="appbar-sub" id="agentInfo">/,
+    'the header keeps a slot for the supported-CLI tagline');
+  assert.match(appScript, /Supported CLIs: \$\{names\}/,
+    'the header tagline labels the list as the supported CLIs');
   assert.match(index.body, /id="settingsRandomEnabled"/,
     'settings has a separate switch for random harness drawing');
   const settingsSubmit = /\$\('settingsForm'\)\.addEventListener\('submit',[\s\S]*?toast\('Settings saved'\);/.exec(appScript)?.[0] || '';
