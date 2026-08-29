@@ -36,10 +36,9 @@
       <div class="pane-sticky">
         <div class="project-head">
           <div class="project-title">
+            <button class="btn btn-sm btn-burger" id="projectMenuBtn" title="Project actions"
+              aria-label="Project actions" aria-haspopup="true">&#9776;</button>
             <h2 id="projectName"></h2>
-            <span class="spacer"></span>
-            <button class="btn btn-sm btn-dots" id="projectMenuBtn" title="Project actions"
-              aria-label="Project actions" aria-haspopup="true">&hellip;</button>
           </div>
         </div>
 
@@ -47,12 +46,11 @@
           <span class="filter-label">Tasks</span>
           <button class="btn btn-sm btn-plus btn-primary" id="newTaskBtn" title="New task" aria-label="New task">+</button>
           <button class="btn btn-sm" id="runReadyBtn">Run all ready</button>
+          <button class="btn btn-sm" id="runFailedBtn">Retry failed</button>
           <label class="status-filter">Status
             <select id="statusFilter" aria-label="Filter by status"></select>
           </label>
           <span class="spacer"></span>
-          <button class="btn btn-sm btn-dots" id="tasksMenuBtn" title="More task actions"
-            aria-label="More task actions" aria-haspopup="true">&hellip;</button>
         </div>
       </div>
 
@@ -343,9 +341,6 @@
   <button class="menu-item menu-btn" id="deployProjectBtn" title="This project has no fly.toml to deploy" disabled>Deploy: 0 pushes</button>
 </div>
 
-<div class="menu" id="tasksMenu" role="menu" hidden>
-  <button class="menu-item menu-btn" id="runFailedBtn">Retry failed</button>
-</div>
 <div class="menu" id="taskMenu" role="menu" hidden></div>
 <div class="menu" id="tagMenu" role="menu" hidden></div>
 <div class="toast" id="toast" hidden></div>

@@ -77,8 +77,9 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   line-height: 1.15;
 }
 .btn-sm.btn-plus { width: 28px; padding: 3px 0; font-size: 16px; }
-/* Same idea for the "…" buttons: a square target rather than three bare dots. */
-.btn-dots {
+/* Same idea for the "…" and hamburger buttons: a square target rather than a bare glyph. */
+.btn-dots,
+.btn-burger {
   width: 34px;
   padding: 6px 0;
   display: inline-flex;
@@ -87,7 +88,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   font-size: 16px;
   line-height: 1;
 }
-.btn-sm.btn-dots { width: 28px; padding: 3px 0; }
+.btn-sm.btn-dots, .btn-sm.btn-burger { width: 28px; padding: 3px 0; }
 .btn-primary { background: #2b4f8f; border-color: #3a67b5; }
 .btn-primary:hover { background: #34609f; }
 .btn-danger { background: #4a2226; border-color: #6d3138; color: #ffc9c9; }

@@ -697,35 +697,34 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTaskM
 window.addEventListener('resize', closeTaskMenu);
 window.addEventListener('scroll', closeTaskMenu, true);
 
-/* ---------- Drop-down menus: the hamburger, the project, and the task list ---------- */
+/* ---------- Drop-down menus: the app hamburger and the project hamburger ---------- */
 
 /**
- * All three behave alike: their button toggles them, they hang from its right edge, and anything
- * else — a click elsewhere, Escape, a resize, a scroll — puts them away. Their rows are real
- * buttons that live in the document rather than being rebuilt on open, so the code that keeps
- * labels and disabled state in step goes on finding them by id.
+ * Both behave alike: their button toggles them, they hang from the edge of the button nearest the
+ * window edge they sit by, and anything else — a click elsewhere, Escape, a resize, a scroll —
+ * puts them away. Their rows are real buttons that live in the document rather than being rebuilt
+ * on open, so the code that keeps labels and disabled state in step goes on finding them by id.
  */
 const DROPDOWNS = [
-  ['menuBtn', 'appMenu'],
-  ['projectMenuBtn', 'projectMenu'],
-  ['tasksMenuBtn', 'tasksMenu'],
+  ['menuBtn', 'appMenu', 'right'],
+  ['projectMenuBtn', 'projectMenu', 'left'],
 ];
 
 const closeAppMenu = () => { for (const [, id] of DROPDOWNS) $(id).hidden = true; };
 
-for (const [btnId, menuId] of DROPDOWNS) {
+for (const [btnId, menuId, align] of DROPDOWNS) {
   const menu = $(menuId);
   $(btnId).onclick = () => {
     const wasOpen = !menu.hidden;
     closeAppMenu();
     if (wasOpen) return;
     const r = $(btnId).getBoundingClientRect();
-    // Hang from the right edge so a button near the right of the window does not open off-screen.
+    // Hang from the edge the button sits by, so it does not open off-screen.
     menu.style.left = '0px';
     menu.style.top = '0px';
     menu.hidden = false;
     const { width } = menu.getBoundingClientRect();
-    placeMenu(menu, r.right - width, r.bottom + 6);
+    placeMenu(menu, align === 'left' ? r.left : r.right - width, r.bottom + 6);
   };
   // Every row is an action, so put the menu away as soon as one is pressed. Capture, so a row that
   // goes on to open a dialog or a `confirm` does not leave the menu sitting behind it.
@@ -733,7 +732,7 @@ for (const [btnId, menuId] of DROPDOWNS) {
 }
 
 // A button toggles its own menu, so a click on it must not also count as a click outside.
-const DROPDOWN_SELECTOR = DROPDOWNS.flat().map((id) => `#${id}`).join(', ');
+const DROPDOWN_SELECTOR = DROPDOWNS.flatMap(([btnId, menuId]) => [`#${btnId}`, `#${menuId}`]).join(', ');
 document.addEventListener('click', (e) => {
   if (!e.target.closest(DROPDOWN_SELECTOR)) closeAppMenu();
 });
