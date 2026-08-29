@@ -77,6 +77,17 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
   line-height: 1.15;
 }
 .btn-sm.btn-plus { width: 28px; padding: 3px 0; font-size: 16px; }
+/* Same idea for the "…" buttons: a square target rather than three bare dots. */
+.btn-dots {
+  width: 34px;
+  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+.btn-sm.btn-dots { width: 28px; padding: 3px 0; }
 .btn-primary { background: #2b4f8f; border-color: #3a67b5; }
 .btn-primary:hover { background: #34609f; }
 .btn-danger { background: #4a2226; border-color: #6d3138; color: #ffc9c9; }
@@ -118,22 +129,7 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .sidebar-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 
-.all-tasks-btn {
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin-bottom: 14px;
-  cursor: pointer;
-}
-.all-tasks-btn:hover { background: var(--panel-2); }
-.all-tasks-btn.selected { background: var(--panel-2); border-color: var(--accent); }
-
-/* Three columns: the project (name over its counts), then Push, then Deploy. The grid lives on the
+/* Three columns: the project name, then Push, then Deploy. The grid lives on the
    list rather than on each row so the buttons line up down the sidebar even though a row only
    draws the ones it needs; each row's items are placed in their own column by hand below. */
 .project-list {
@@ -160,10 +156,9 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .project-list button:hover { background: var(--panel-2); }
 .project-list button.selected { background: var(--panel-2); border-color: var(--accent); }
 .project-list .project-btn { grid-column: 1; min-width: 0; }
+/* Clips rather than wraps: the two button columns leave this one narrow, and a project whose
+   name wrapped would make its row taller than every other row in the list. */
 .pname { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Both rows clip rather than wrap: the two button columns leave this one narrow, and a project
-   whose counts wrapped would make its row taller than every other row in the list. */
-.pcount { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* One shape for every "this project needs something" button; each kind only sets its colour.
    Both are real buttons, so they sit beside the project rather than inside it — a button cannot
@@ -200,14 +195,44 @@ code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .empty { color: var(--muted); margin-top: 60px; text-align: center; }
 
 .project-head { display: grid; gap: 4px; }
-.project-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.project-head h2 { font-size: 20px; margin-right: 10px; }
-.project-head .muted { font-size: 12px; margin: 0; }
-.deploy-toolbar { margin: 10px 0 0; }
+.project-title { display: flex; align-items: center; gap: 10px; }
+.project-head h2 {
+  font-size: 20px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* The project bar and the task bar stay put while the task list scrolls under them. The negative
+   margins pull the block out to the edges of the content column so nothing shows through beside
+   it, and the padding puts the spacing back. */
+.pane-sticky {
+  position: sticky;
+  top: 51px;
+  z-index: 4;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  margin: -18px -22px 14px;
+  padding: 14px 22px 2px;
+}
+
 .toolbar { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; flex-wrap: wrap; }
+.tasks-toolbar { margin: 10px 0 8px; }
 .tag-toolbar { margin: 0 0 14px; }
+/* One line, laid out like the rest of the toolbar rather than as a stacked field with a caption. */
+.status-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.status-filter select { width: auto; padding: 3px 8px; font-size: 13px; text-transform: none; letter-spacing: 0; }
 /* Wide enough for the longest label, so the status, tag, and deploy buttons start on the same edge. */
 .filter-label {
   min-width: 88px;
@@ -345,6 +370,9 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .dialog-form { padding: 16px; display: grid; gap: 12px; }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; }
+/* The title bar of a dialog that can be moved. The close button keeps its own cursor. */
+.dialog-head.drag-handle { cursor: move; user-select: none; }
+.dialog-head.drag-handle button { cursor: pointer; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .agent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -549,6 +577,13 @@ textarea.dropping { border-color: var(--accent); background: #1b2436; }
 .menu-add .menu-text { text-transform: none; letter-spacing: 0; color: var(--muted); }
 .menu-plain .menu-text { text-transform: none; letter-spacing: 0; font-size: 13px; }
 .menu-arrow { margin-left: auto; color: var(--muted); }
+/* A real button parked in a menu. Its label is written straight onto the button by the code that
+   keeps it up to date, so it reads as a row without needing a `.menu-text` span inside it. */
+.menu-btn { text-transform: none; letter-spacing: 0; font-size: 13px; }
+.menu-btn:disabled { opacity: .5; cursor: not-allowed; }
+.menu-btn:disabled:hover { background: var(--panel-2); border-color: var(--line); }
+.menu-danger { background: #4a2226; border-color: #6d3138; color: #ffc9c9; }
+.menu-danger:hover { background: #5c2a2f; border-color: #6d3138; }
 #tagMenu { z-index: 16; }
 .menu-sep { height: 1px; background: var(--line); margin: 3px 1px; }
 

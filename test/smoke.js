@@ -68,16 +68,24 @@ async function main() {
   assert.match(index.body, /Open Local/);
   assert.match(index.body, /Open Prod/);
   assert.match(index.body, /Deploy: 0 pushes/);
-  assert.match(index.body, /id="deployToolbar"/);
-  assert.match(index.body, /Deployment/);
   assert.match(index.body, /id="deployProjectBtn"/);
   assert.match(index.body, /id="deployProjectBtn"[^>]*\bdisabled\b/);
   assert.match(index.body, /src="\/push-ui\.js"/);
-  assert.match(index.body, /id="pushProjectBtn"/);
   assert.match(index.body, /id="pushProjectBtn"[^>]*\bdisabled\b/);
-  assert.match(index.body, /id="deployToolbar"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
-  assert.match(index.body, /<header class="appbar">[\s\S]*id="usageBtn"[\s\S]*id="performanceBtn"[\s\S]*id="agentsBtn"[\s\S]*id="menuBtn"/);
-  assert.doesNotMatch(index.body, /<header class="appbar">[\s\S]*id="menuBtn"[\s\S]*id="usageBtn"/);
+  // Edit, Delete and the deployment buttons all hang off the project "..." menu now.
+  assert.match(index.body, /id="projectMenuBtn"/);
+  assert.match(index.body, /id="projectMenu"[\s\S]*id="editProjectBtn"[\s\S]*id="deleteProjectBtn"[\s\S]*id="runLocalBtn"[\s\S]*id="openLocalBtn"[\s\S]*id="runProdBtn"[\s\S]*id="pushProjectBtn"[\s\S]*id="deployProjectBtn"/);
+  // The app bar is down to the hamburger; Usage, Performance and Agents moved into its menu.
+  assert.match(index.body, /<header class="appbar">[\s\S]*?id="menuBtn"[\s\S]*?<\/header>/);
+  assert.doesNotMatch(index.body, /<header class="appbar">[\s\S]*?id="usageBtn"[\s\S]*?<\/header>/);
+  assert.match(index.body, /id="appMenu"[\s\S]*id="usageMenuBtn"[\s\S]*id="performanceMenuBtn"[\s\S]*id="agentsMenuBtn"[\s\S]*id="settingsMenuBtn"/);
+  // The left column lists projects only — the All tasks panel is gone.
+  assert.doesNotMatch(index.body, /id="allTasksBtn"/);
+  // The task bar: new task, run all ready, a status dropdown, and a "..." menu holding Retry failed.
+  assert.match(index.body, /class="toolbar tasks-toolbar"[\s\S]*id="newTaskBtn"[\s\S]*id="runReadyBtn"[\s\S]*id="statusFilter"[\s\S]*id="tasksMenuBtn"/);
+  assert.match(index.body, /id="tasksMenu"[\s\S]*id="runFailedBtn"/);
+  // Both bars sit in one sticky block, so they hold their place as the task list scrolls.
+  assert.match(index.body, /class="pane-sticky"[\s\S]*class="project-head"[\s\S]*class="toolbar tasks-toolbar"/);
   ok('serves the front end');
 
   const usageScript = (await call('GET', '/usage-report.js')).body;

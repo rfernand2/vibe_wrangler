@@ -4,7 +4,6 @@ const $ = (id) => document.getElementById(id);
 const GRADES = GRADE_SCALE; // from performance-chart.js, which also averages along it
 
 const state = {
-  view: 'project', // 'project' | 'all'
   version: '',
   harnesses: [],
   settings: { harness: '', provider: '', model: '', random: [] },
@@ -223,7 +222,7 @@ const SELECTION_KEY = 'vw.selection';
 
 function saveSelection() {
   try {
-    localStorage.setItem(SELECTION_KEY, JSON.stringify({ view: state.view, projectId: state.projectId }));
+    localStorage.setItem(SELECTION_KEY, JSON.stringify({ projectId: state.projectId }));
   } catch {}
 }
 
@@ -231,7 +230,6 @@ function restoreSelection() {
   try {
     const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) || 'null');
     if (!saved) return;
-    if (saved.view === 'all' || saved.view === 'project') state.view = saved.view;
     // loadProjects() drops the id again if that project has since been deleted.
     if (saved.projectId != null) state.projectId = saved.projectId;
   } catch {}
@@ -250,30 +248,21 @@ async function loadProjects() {
 function renderProjects() {
   saveSelection();
 
-  const total = state.projects.reduce((n, p) => n + p.task_count, 0);
-  const ready = state.projects.reduce((n, p) => n + p.ready_count, 0);
-  $('allTasksCount').textContent =
-    `${total} task${total === 1 ? '' : 's'} in ${state.projects.length} project${state.projects.length === 1 ? '' : 's'} · ${ready} ready`;
-  $('allTasksBtn').classList.toggle('selected', state.view === 'all');
-
   const list = $('projectList');
   list.replaceChildren();
   for (const p of state.projects) {
     const li = document.createElement('li');
 
-    // Column 1 — the project itself: its name on the first row, its counts on the second.
+    // Column 1 — the project itself, on one line: just its name.
     const btn = document.createElement('button');
-    btn.className = state.view === 'project' && p.id === state.projectId ? 'project-btn selected' : 'project-btn';
+    btn.className = p.id === state.projectId ? 'project-btn selected' : 'project-btn';
     const name = document.createElement('span');
     name.className = 'pname';
     name.textContent = p.name;
-    const count = document.createElement('span');
-    count.className = 'pcount';
-    count.textContent = `${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +
+    btn.append(name);
+    // The name is clipped to a narrow column, so keep it and the counts within reach on hover.
+    btn.title = `${p.name}\n${p.task_count} task${p.task_count === 1 ? '' : 's'} · ${p.ready_count} ready` +
       (p.active_count ? ` · ${p.active_count} active` : '');
-    btn.append(name, count);
-    // Both rows are clipped to a narrow column, so the full text stays available on hover.
-    btn.title = `${p.name}\n${count.textContent}`;
     btn.onclick = () => selectProject(p.id);
     li.append(btn);
 
@@ -309,20 +298,11 @@ function renderProjects() {
 }
 
 const selectProject = run(async (id) => {
-  state.view = 'project';
   state.projectId = id;
   state.filter = 'all';
   state.tagFilter = null;
   // Selection itself is local. Project counts and repository state are refreshed by change events;
   // blocking this click on those checks made switching take several seconds on larger sidebars.
-  renderProjects();
-  await loadTasks();
-});
-
-const selectAllTasks = run(async () => {
-  state.view = 'all';
-  state.filter = 'all';
-  state.tagFilter = null;
   renderProjects();
   await loadTasks();
 });
@@ -410,44 +390,34 @@ function renderFilters() {
   const pool = taggedTasks();
   const known = [...new Set([...state.statuses.builtin, ...state.statuses.custom,
     ...state.tasks.map((t) => t.status)])];
-  const box = $('statusFilters');
-  box.replaceChildren();
-  for (const f of ['all', ...known]) {
-    const b = document.createElement('button');
-    b.className = 'btn btn-sm' + (state.filter === f ? ' active' : '');
+  const sel = $('statusFilter');
+  // A status can disappear from the board while it is the one being filtered on; keep it in the
+  // list in that case, so the dropdown never silently shows a different set than the task list.
+  const choices = ['all', ...known];
+  if (!choices.includes(state.filter)) choices.push(state.filter);
+  sel.replaceChildren(...choices.map((f) => {
     const n = f === 'all' ? pool.length : pool.filter((t) => t.status === f).length;
-    b.textContent = `${f} (${n})`;
-    b.onclick = () => { state.filter = f; renderTasks(); renderFilters(); renderTagFilters(); };
-    box.append(b);
-  }
+    return option(f, `${f} (${n})`);
+  }));
+  sel.value = state.filter;
 }
 
-async function loadTasks() {
-  const projectOnly = [
-    'deployToolbar',
-    'editProjectBtn', 'deleteProjectBtn', 'runReadyBtn', 'runFailedBtn', 'newTaskBtn',
-  ];
+$('statusFilter').onchange = (e) => {
+  state.filter = e.target.value;
+  renderTasks();
+  renderFilters();
+  renderTagFilters();
+};
 
-  if (state.view === 'all') {
-    $('emptyState').hidden = true;
-    $('projectPane').hidden = false;
-    for (const id of projectOnly) $(id).hidden = true;
-    $('projectName').textContent = 'All tasks';
-    state.tasks = await api('GET', '/api/tasks');
-    const projectCount = new Set(state.tasks.map((t) => t.project_id)).size;
-    $('projectMeta').textContent =
-      `${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} across ${projectCount} project${projectCount === 1 ? '' : 's'}`;
-  } else {
-    const p = state.projects.find((x) => x.id === state.projectId);
-    $('emptyState').hidden = !!p;
-    $('projectPane').hidden = !p;
-    if (!p) return;
-    for (const id of projectOnly) $(id).hidden = false;
-    $('projectName').textContent = p.name;
-    $('projectMeta').textContent = [p.directory || '(no directory set)', p.description].filter(Boolean).join(' — ');
-    syncProjectButtons(p);
-    state.tasks = await api('GET', `/api/projects/${p.id}/tasks`);
-  }
+async function loadTasks() {
+  const p = state.projects.find((x) => x.id === state.projectId);
+  $('emptyState').hidden = !!p;
+  $('projectPane').hidden = !p;
+  if (!p) return;
+  $('projectName').textContent = p.name;
+  $('projectName').title = [p.directory || '(no directory set)', p.description].filter(Boolean).join(' — ');
+  syncProjectButtons(p);
+  state.tasks = await api('GET', `/api/projects/${p.id}/tasks`);
 
   if (state.tagFilter && !state.tasks.some((t) => t.tags.includes(state.tagFilter))) state.tagFilter = null;
 
@@ -574,7 +544,6 @@ function renderTasks() {
     const sub = document.createElement('div');
     sub.className = 'task-sub';
     const parts = [
-      state.view === 'all' ? t.project_name : null,
       `${t.comment_count} comment${t.comment_count === 1 ? '' : 's'}`,
       t.checklist.length ? `checklist ${checklistProgress(t.checklist)}` : null,
       `updated ${when(t.updated_at)}`,
@@ -728,25 +697,45 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTaskM
 window.addEventListener('resize', closeTaskMenu);
 window.addEventListener('scroll', closeTaskMenu, true);
 
-/* ---------- App menu ---------- */
+/* ---------- Drop-down menus: the hamburger, the project, and the task list ---------- */
 
-const closeAppMenu = () => { $('appMenu').hidden = true; };
+/**
+ * All three behave alike: their button toggles them, they hang from its right edge, and anything
+ * else — a click elsewhere, Escape, a resize, a scroll — puts them away. Their rows are real
+ * buttons that live in the document rather than being rebuilt on open, so the code that keeps
+ * labels and disabled state in step goes on finding them by id.
+ */
+const DROPDOWNS = [
+  ['menuBtn', 'appMenu'],
+  ['projectMenuBtn', 'projectMenu'],
+  ['tasksMenuBtn', 'tasksMenu'],
+];
 
-$('menuBtn').onclick = () => {
-  const menu = $('appMenu');
-  if (!menu.hidden) return closeAppMenu();
-  const r = $('menuBtn').getBoundingClientRect();
-  // Hang from the right edge so a far-right hamburger does not open off-screen.
-  menu.style.left = '0px';
-  menu.style.top = '0px';
-  menu.hidden = false;
-  const { width } = menu.getBoundingClientRect();
-  placeMenu(menu, r.right - width, r.bottom + 6);
-};
+const closeAppMenu = () => { for (const [, id] of DROPDOWNS) $(id).hidden = true; };
 
-// The button toggles itself, so a click on it must not also count as a click outside.
+for (const [btnId, menuId] of DROPDOWNS) {
+  const menu = $(menuId);
+  $(btnId).onclick = () => {
+    const wasOpen = !menu.hidden;
+    closeAppMenu();
+    if (wasOpen) return;
+    const r = $(btnId).getBoundingClientRect();
+    // Hang from the right edge so a button near the right of the window does not open off-screen.
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.hidden = false;
+    const { width } = menu.getBoundingClientRect();
+    placeMenu(menu, r.right - width, r.bottom + 6);
+  };
+  // Every row is an action, so put the menu away as soon as one is pressed. Capture, so a row that
+  // goes on to open a dialog or a `confirm` does not leave the menu sitting behind it.
+  menu.addEventListener('click', (e) => { if (e.target.closest('button')) closeAppMenu(); }, true);
+}
+
+// A button toggles its own menu, so a click on it must not also count as a click outside.
+const DROPDOWN_SELECTOR = DROPDOWNS.flat().map((id) => `#${id}`).join(', ');
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('#appMenu, #menuBtn')) closeAppMenu();
+  if (!e.target.closest(DROPDOWN_SELECTOR)) closeAppMenu();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAppMenu(); });
 window.addEventListener('resize', closeAppMenu);
@@ -1033,12 +1022,63 @@ function connectEvents() {
 
 function openDialog(id) { $(id).showModal(); }
 
+/**
+ * Let a dialog be dragged around by its title bar. The browser centres a modal through its own
+ * margins, so the first drag pins it where it already sits and then moves it by explicit
+ * coordinates. Each fresh opening starts centred again rather than wherever it was left.
+ */
+function makeDialogDraggable(id) {
+  const dlg = $(id);
+  const handle = dlg.querySelector('.dialog-head');
+  handle.classList.add('drag-handle');
+  let grab = null;
+
+  const recentre = () => {
+    for (const prop of ['margin', 'left', 'top', 'right', 'bottom']) dlg.style[prop] = '';
+  };
+
+  handle.addEventListener('pointerdown', (e) => {
+    // The close button lives in this bar too, and is not something to drag by.
+    if (e.button !== 0 || e.target.closest('button, input, select, textarea, a')) return;
+    const r = dlg.getBoundingClientRect();
+    // A modal is laid out against all four edges; pin it to the top-left pair and free the others.
+    dlg.style.margin = '0';
+    dlg.style.right = 'auto';
+    dlg.style.bottom = 'auto';
+    dlg.style.left = `${r.left}px`;
+    dlg.style.top = `${r.top}px`;
+    grab = { dx: e.clientX - r.left, dy: e.clientY - r.top, width: r.width };
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (e) => {
+    if (!grab) return;
+    // Always leave a strip of the title bar on screen, so it can be dragged back.
+    const x = clamp(e.clientX - grab.dx, 60 - grab.width, window.innerWidth - 60);
+    const y = clamp(e.clientY - grab.dy, 0, window.innerHeight - 40);
+    dlg.style.left = `${x}px`;
+    dlg.style.top = `${y}px`;
+  });
+
+  const drop = (e) => {
+    if (!grab) return;
+    grab = null;
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+  };
+  handle.addEventListener('pointerup', drop);
+  handle.addEventListener('pointercancel', drop);
+  dlg.addEventListener('close', recentre);
+}
+
+const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), Math.max(lo, hi));
+
+makeDialogDraggable('taskDialog');
+
 document.addEventListener('click', (e) => {
   const id = e.target.dataset?.close;
   if (id) $(id).close();
 });
-
-$('allTasksBtn').onclick = selectAllTasks;
 
 let editingProject = null;
 $('newProjectBtn').onclick = () => {
@@ -1427,7 +1467,8 @@ async function renderAgents() {
   }
 }
 
-$('agentsBtn').onclick = run(async () => {
+$('agentsMenuBtn').onclick = run(async () => {
+  closeAppMenu();
   openDialog('agentsDialog');
   await renderAgents();
 });
@@ -1545,7 +1586,8 @@ function renderPerformance(rows) {
   });
 }
 
-$('performanceBtn').onclick = run(async () => {
+$('performanceMenuBtn').onclick = run(async () => {
+  closeAppMenu();
   const rows = await api('GET', '/api/performance');
   renderPerformance(rows);
   openDialog('performanceDialog');
@@ -1659,7 +1701,8 @@ function showUsageTab(tab) {
   if (usageReport) renderUsageReport(usageReport, $('usageBody'), usageTab);
 }
 
-$('usageBtn').onclick = run(async () => {
+$('usageMenuBtn').onclick = run(async () => {
+  closeAppMenu();
   usageReport = await api('GET', '/api/usage');
   showUsageTab(usageTab);
   openDialog('usageDialog');
